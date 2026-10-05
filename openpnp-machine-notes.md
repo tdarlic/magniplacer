@@ -5,7 +5,7 @@ re-discovering everything. **Last checked against the live machine: 2026-10-05**
 OpenPnP running).
 
 A reference copy of the live `~/.openpnp2/machine.xml` is kept next to this file as **`machine.xml`**.
-It is the version OpenPnP last saved (2026-10-05 19:10, with the new X/Y speed limits). The Smoothie `config.txt`
+It is the version OpenPnP last saved (2026-10-05 19:15: new X/Y speed limits, soft limits on, speed slider 100 %). The Smoothie `config.txt`
 is kept next to it as **`smoothie-config.txt`** (copied 2026-10-05 19:12). Re-copy it after OpenPnP has been closed (it saves on
 exit) to pick up GUI changes: `scp tdarlic@192.168.0.185:.openpnp2/machine.xml .`
 
@@ -63,12 +63,12 @@ The head's pump control is **PartOn** with a 0 ms pump-on wait, so the pump is s
 
 ### Configuration as checked on 2026-10-05
 
-**Axes and motion** (`GcodeAsyncDriver`, motion control `ModeratedConstantAcceleration`, machine speed slider 0.67 at 19:10)
+**Axes and motion** (`GcodeAsyncDriver`, motion control `ModeratedConstantAcceleration`, machine speed slider 100 %)
 
 | Axis | Letter | Soft limits | Notes |
 |---|---|---|---|
-| x | X | 1 … 570 mm (**low limit off** since 18:25) | **200 mm/s, 1200 mm/s²** (tested, 2026-10-05); backlash: one-sided, ≈ 0.127 mm |
-| y | Y | 3 … 373 mm (**low limit off** since 18:25) | **200 mm/s, 1200 mm/s²** (tested, 2026-10-05); backlash: one-sided, ≈ 0.127 mm |
+| x | X | 1 … 570 mm | **200 mm/s, 1200 mm/s²** (tested, 2026-10-05); backlash: one-sided, ≈ 0.127 mm |
+| y | Y | 3 … 373 mm | **200 mm/s, 1200 mm/s²** (tested, 2026-10-05); backlash: one-sided, ≈ 0.127 mm |
 | Z | Z | – | safe zone low −4.8 mm |
 | C | A | −180 … 180° | rotation, wrap-around, limited |
 | zTop / rotationTop | – | – | virtual axes for the top camera |
@@ -685,6 +685,7 @@ margins or increase C4 to 47 nF.
 | 2026-10-05 | Reference copy of `machine.xml` added to this folder | – |
 | 2026-10-05 | X/Y current tried at 1.2 A (soft clicking at standstill after enable) and 0.9 A (jerky, lost the fiducial at the slowest test step). Back to 0.5 / 0.6 A | `smoothie-config.txt` in this folder = known-good config (0.5 / 0.6 A) |
 | 2026-10-05 | Smoothie stuck in bootloader after a reset; e-stop was pressed. Released → boots normally | – |
+| 2026-10-05 | Speed tests (`scripts/Speed_Test.js`): lost steps above 250 mm/s and at 3000 mm/s². Set X/Y to 200 mm/s, 1200 mm/s² in OpenPnP; Smoothie `x/y_axis_max_speed 15000`, `acceleration 1200` | OpenPnP x/y were 15000 mm/s, 1500 mm/s²; Smoothie 20000 / 2500 |
 
 ---
 
@@ -737,8 +738,7 @@ margins or increase C4 to 47 nF.
       shift 0.022 mm (= noise) → no lost steps. **Applied 19:10:** OpenPnP x / y 200 mm/s, 1200 mm/s²; Smoothie
       `x/y_axis_max_speed 15000`, `acceleration 1200`. Copies in this folder: `machine.xml`, `smoothie-config.txt`.
       Optional later: re-test 250/300 mm/s at 0.9 A to confirm the step-rate limit, and the 0.9 A stuttering.
-- [ ] X/Y **low soft limits are switched off** in the `machine.xml` OpenPnP saved at 18:25 (`soft-limit-low-enabled
-      false`; high limits still on). Re-enable them (Machine Setup → Axes → x / y), unless it was deliberate.
+- [x] ~~X/Y low soft limits were switched off~~ (seen in the 18:25 save) – turned back on, saved 19:15.
       **Most likely cause of the 300 mm/s limit: Smoothie's step rate.** `base_stepping_frequency 100000` is the
       Smoothieware default and "the only officially supported value" (smoothieware.org/configuration-options).
       Step pulses are derived from that 10 µs tick by integer division, so the max step rate per motor is
