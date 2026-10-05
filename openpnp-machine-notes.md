@@ -273,6 +273,7 @@ moves up and down is still off the image center.
 4. Then run nozzle tip (runout) calibration.
 
 **Investigate mechanically only if:**
+
 - the still point is near the edge of the image (loose, cross-threaded or badly off-center lens), or
 - the nozzle's image traces a curve as it moves in Z, or it visibly moves sideways (bent or loose Z axis).
 
@@ -305,6 +306,7 @@ The bottom camera light was **changed from red LEDs to white LEDs.**
 5. Check the pipeline gets a clean outline with some margin.
 
 Notes:
+
 - **PWM dimming:** use a high frequency (tens of kHz) or a constant-current driver. At low frequencies the camera
   catches the flicker, as dark bands or brightness changing between frames.
 - **Diffusion** matters more than color. Soft light means less glare off shiny ends.
@@ -495,6 +497,7 @@ The sensor is **ratiometric**: its output scales with the 5 V supply, so a drift
 > Only the **brown + white** wires go to this connector, on its **3.3 V** pin.
 
 Notes:
+
 - **Ground:** use one common ground. Don't split the 5 V and 3.3 V grounds; on the Smoothieboard they're the same
   ground plane. If the GND pin of the VBB/3.3V/GND connector is also used, that's fine too; it's the same plane.
   What matters is keeping pump, valve and motor return currents off the sensor's ground wire.
@@ -528,12 +531,14 @@ pump ── restriction (short section of thinner tube) ──┬── sensor (
 or blocked. Measured before the restriction was fitted: 380–420 in every state, which is useless for detection.
 
 It works like an air version of a voltage divider:
+
 - Tip blocked: no airflow → line reaches full pump vacuum. Holding force on the part is unchanged; the line just
   takes a little longer to pump down.
 - Tip open: air leaks in through the tip faster than the restriction lets it out → reading rises towards atmosphere.
 - Vent open: line goes close to atmosphere → the part releases more cleanly.
 
 Tuning:
+
 - Too little difference between open and blocked → narrower or longer restriction.
 - Vacuum takes too long to build → wider or shorter restriction.
 - Alternatives: a blunt dispensing needle inline (18G ≈ 0.8 mm, 20G ≈ 0.6 mm, 22G ≈ 0.4 mm inside diameter),
@@ -685,18 +690,62 @@ margins or increase C4 to 47 nF.
 | 2026-10-05 | Reference copy of `machine.xml` added to this folder | – |
 | 2026-10-05 | X/Y current tried at 1.2 A (soft clicking at standstill after enable) and 0.9 A (jerky, lost the fiducial at the slowest test step). Back to 0.5 / 0.6 A | `smoothie-config.txt` in this folder = known-good config (0.5 / 0.6 A) |
 | 2026-10-05 | Smoothie stuck in bootloader after a reset; e-stop was pressed. Released → boots normally | – |
+| 2026-10-05 19:23 | Issues & Solutions "up-looking camera BOTTOM position and initial calibration": BOTTOM Z −7.80 → −6.75 mm, offsets (−44.154, 95.810) → (−43.838, 95.835), units per pixel ≈ +3 %, N40 vision diameter 0.80 → 0.78 | `machine.xml` 19:15 copy in this folder has the old values |
+| 2026-10-05 19:34 | TOP CAMERA Advanced Camera Calibration enabled (RMS 1.89 px) | – |
+| 2026-10-05 ~20:00 | BOTTOM Advanced Calibration **switched off**: its data was from the old Z −7.8 and no longer matched the new position → nozzle off the crosshair, N40 calibration failed after homing (0.77 mm > 0.5 mm). Off → nozzle calibration works | Re-enable only after a fresh calibration |
 | 2026-10-05 | Speed tests (`scripts/Speed_Test.js`): lost steps above 250 mm/s and at 3000 mm/s². Set X/Y to 200 mm/s, 1200 mm/s² in OpenPnP; Smoothie `x/y_axis_max_speed 15000`, `acceleration 1200` | OpenPnP x/y were 15000 mm/s, 1500 mm/s²; Smoothie 20000 / 2500 |
 
 ---
 
 ## 12. Open items
 
+### Next session (2026-10-06): bottom camera Advanced Calibration
+
+Status on 2026-10-05: BOTTOM Advanced Calibration is **off**. The old data (Z −7.8, RMS 3.99 px) didn't match the
+camera's new position after the Issues & Solutions "camera position" step, and a new run with N40 misdetected the
+nozzle at the later test points (image edges and the second height). Nozzle tip calibration works with it off.
+
+Before starting:
+
+- [ ] Bottom camera lighting and exposure final (§5): auto exposure / gain / white balance off, tip end bright but
+      not blown out, light even towards the image edges. Calibration depends on the image, so do this first.
+- [ ] Clean the nozzle tip face (flux and dust make the circle irregular).
+
+Calibration with a larger tip:
+
+- [ ] Change to a **larger tip with a clean, round end** through OpenPnP (tip changer or manual nozzle tip change),
+      so OpenPnP knows which tip is on. The camera calibration applies to all tips, so any tip will do.
+- [ ] Measure the tip's end diameter with calipers and set it as the **detection diameter** in the calibration
+      settings. It's still set for N40 (0.78 mm) from the Issues & Solutions step.
+- [ ] Advanced Calibration tab: **test pattern fill fraction 0.9 → 0.6–0.7** (keeps the points away from the dark,
+      distorted corners). Put the **secondary Z closer to the primary Z** (less defocus).
+- [ ] Run Machine Setup → Cameras → BOTTOM → Advanced Calibration. Watch the detections: a few misses are discarded
+      as outliers, but not many.
+- [ ] Result: **RMS ≲ 2 px** (top camera: 1.89 px). Check that the calibration is **enabled** afterwards.
+- [ ] **Don't** run the Issues & Solutions "camera position" step afterwards. It moves the camera position again
+      and breaks the match (that's what happened on 2026-10-05).
+
+Afterwards:
+
+- [ ] Put **N40** back on (through OpenPnP) and run its **nozzle tip calibration**. Repeat for every other tip in use;
+      each tip needs its own runout calibration.
+- [ ] **Home**, and check that the N40 calibration passes straight after homing (that's what failed on 2026-10-05:
+      0.77 mm offset, limit 0.5 mm). Check the nozzle sits in the crosshair centre.
+- [ ] If the result is poor (RMS well above 2 px, nozzle off-centre, calibration fails after homing):
+      **switch Advanced Calibration off again before saving**, so the saved config stays in the working state.
+- [ ] **Save the configuration**, then copy `machine.xml` into this folder (or ask Claude to check the result and
+      copy it): `scp tdarlic@192.168.0.185:.openpnp2/machine.xml .`
+- [ ] Fallback: the 19:15 `machine.xml` copy in this folder has the bottom camera as it was before 2026-10-05 19:23.
+      With OpenPnP closed, the BOTTOM camera section can be restored from it.
+
+### Other open items
+
 - [x] ~~Actuators without a driver~~: PUMP, AVAC, LIGHT_TOP and LIGHT_BOTTOM still have no `driver-id`, but the
       log (2026-10-05) shows their G-code is sent. Nothing to fix. Optionally assign the GcodeDriver for tidiness.
 - [x] Bottom camera added, Advanced Camera Calibration enabled, nozzle tip calibration running (N40).
-- [ ] Bottom camera calibration RMS error is 3.99 px. Consider re-running it after the lighting is final.
-- [ ] Top camera: Advanced Camera Calibration data exists but is not enabled or valid. Re-run it, or confirm
-      that it's deliberately off.
+- [ ] **Bottom camera Advanced Calibration is off** (2026-10-05) – redo it, see the checklist at the top of this
+      section.
+- [x] Top camera Advanced Camera Calibration done and enabled (2026-10-05 19:34, RMS 1.89 px).
 - [ ] Set the bottom camera exposure and lighting (§5), then recalibrate.
 - [ ] Part detection: set up N045 properly (its method is Difference with no limits). Measure N40 empty and with
       a part, then lower its Part On high limit (590). Set up the other tips. Test with a pick from an empty slot.
