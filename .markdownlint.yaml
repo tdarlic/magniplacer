@@ -1,0 +1,20 @@
+# markdownlint config for the OpenPnP machine notes.
+# Picked up by markdownlint-cli2 (Neovim via Mason) for every .md file in this folder.
+
+default: true
+
+# Long lines are normal here: tables, links, G-code and wrapped prose at ~115 characters.
+MD013: false
+
+# Bold text is used as a label above tables and lists ("**Cameras**"), not as a heading.
+MD036: false
+
+# Tables are written compact (`|---|---|`); don't enforce pipe spacing or alignment.
+MD060: false
+
+# ASCII schematics and air-line sketches use plain ``` fences without a language.
+MD040: false
+
+# Allow the same heading text in different sections (e.g. "Notes", "Air line").
+MD024:
+  siblings_only: true
