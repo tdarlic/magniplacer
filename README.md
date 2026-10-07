@@ -705,7 +705,65 @@ The NC contact is closed while the e-stop is released and opens when it's presse
 
 - The second contact block must be **electrically separate** from the one wired to P2.12 (no shared common).
   Otherwise 24 V reaches a 3.3 V pin. Check with a meter: no continuity between the two blocks, pressed or released.
-- The e-stop is still only a firmware halt (`kill_button`); it doesn't cut the 24 V motor supply.
+- The e-stop is still only a firmware halt (`kill_button`); it doesn't cut the 24 V motor supply. See the planned
+  upgrade below.
+
+### Planned upgrade: hardware e-stop with a relay (not done yet)
+
+Planned 2026-10-07. Goal: the e-stop **cuts motor power in hardware**, and the firmware kill is a second layer.
+Today a hung firmware or a failed driver/MOSFET could keep the motors moving with the e-stop pressed.
+
+**Relay on hand:** Schrack RP310006 – 6 V DC coil, contacts 16 A 250 V AC. Coil resistance **measured 66 Ω**
+(≈ 91 mA, 0.55 W at 6 V). Check the pin count first: 5 pins = 1 changeover (COM/NO/NC), which can switch both the
+motor power and the LED; 4 pins = 1 NO only (then keep the FET LED circuit above).
+
+Not a solid-state relay: SSRs usually fail shorted (the e-stop would silently stop working), AC-output SSRs never
+turn off on DC, and they have only one pole.
+
+```
+Coil (6 V coil on 24 V through a series resistor):
+
++24V ── e-stop NC (block 1) ── R 220Ω 5W ──┬── coil 66Ω ──┬── GND
+                                           └─────|◄───────┘
+                                              1N4007 (cathode to the + side of the coil)
+
+Contacts (1 changeover, both fed from +24 V):
+
+PSU +24V ── COM
+            NO ──► Smoothie VBB / motor power   (relay energized = e-stop released)
+            NC ──► LED + R ──► GND              (relay released = e-stop pressed)
+```
+
+| R_series | Coil voltage at 24 V | Current | Resistor power |
+|---|---|---|---|
+| 200 Ω | 5.95 V | 90 mA | 1.6 W |
+| **220 Ω (chosen)** | **5.54 V (92 %)** | **84 mA** | **1.55 W** |
+
+- Use a **5 W** resistor (3 W runs hot), mounted away from plastic and wires. No 220 Ω: two 100 Ω ≥ 2 W in series.
+- At 22 V supply the coil still gets ≈ 5.1 V, above the ≈ 4.2–4.5 V pull-in. 26 V gives ≈ 6 V.
+- Diode across the **coil only**, not across resistor + coil.
+- Fail-safe: e-stop pressed, a broken wire, an open resistor or a dead coil all drop the relay → motor power off.
+- Cut on the **DC side** after the PSU (mains-side cut leaves the PSU capacitors powering the motors for a moment).
+- With the relay's NC contact driving the LED, the FET LED circuit above can be removed. The LED then shows what
+  the relay actually did.
+- Releasing the e-stop re-powers the motors, but the Smoothie stays in its kill state until reset (`M999` / reset
+  in OpenPnP), so nothing moves on its own.
+- PCB relay pins: use a socket or a piece of perfboard, heatshrink every joint, motor-power wire sized for the
+  VBB current.
+
+**Do together with the relay:**
+
+- [ ] **Smoothie logic on its own 5 V.** If the 5 V comes from VBB through the on-board regulator, cutting VBB
+      reboots the board on every e-stop.
+- [ ] **Fail-safe kill input.** Feed the Smoothie kill input from a **NC** contact (e-stop block 2): pin held low
+      in normal running, pressed or a broken wire → pull-up takes it high → kill. Set the polarity with `^` / `!`
+      in `kill_button_pin` and test both ways. Today the contact closes when pressed, so a broken wire goes
+      unnoticed.
+- [ ] **Move the kill input off P2.12** (the play-button pin, which makes the bootloader wait at power-up). With a
+      NC contact P2.12 would be low all the time and the board might never boot. `smoothie-config.txt` suggests
+      `2.11`; check it's free first. Then an e-stop pressed at power-up just boots into the kill state.
+- [ ] This needs two NC blocks on the e-stop (relay coil + kill input). Today there's one NC and one NO; add a
+      snap-on NC block, or feed the kill input from a spare relay contact.
 
 ---
 
@@ -816,8 +874,8 @@ Afterwards:
 - [ ] Recreate the 15 production strip feeders (table in §2). Only `Upper Strips - 1` exists.
 - [ ] Check that the Smoothie 5 V rail isn't fed only from USB.
 - [x] E-stop indicator LED – done 2026-10-07, see §10.
-- [ ] Consider cutting the 24 V motor supply with the e-stop (relay/contactor); the kill button is only a firmware
-      halt.
+- [ ] Hardware e-stop: relay (Schrack RP310006, 220 Ω 5 W coil resistor) cutting motor 24 V, fail-safe NC kill
+      input moved off P2.12, Smoothie logic on its own 5 V. Plan and checklist in §10.
 - [x] **Lost steps at 100 % speed** – **solved 2026-10-05**, settings applied at 19:10 (see the end of this item) (fine at 80 %, which also means 64 % acceleration – OpenPnP scales acceleration
       by speed²). X/Y motors are 17HM19-2004S (0.9°, 2.0 A) but run at 0.5 / 0.6 A (`alpha/beta_current`).
       Raise the current, then run `scripts/Speed_Test.js` (copy to `~/.openpnp2/scripts/`). It steps up feed rate
