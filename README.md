@@ -789,7 +789,7 @@ nozzle touches something. OpenPnP uses that to find the real Z of feeders, parts
 | `ACTUATOR_READ_COMMAND` / regex | `M119` / `.*\(Z\)P1\.29:(?<Value>[01]).*` → the probe switch is expected on **P1.29** |
 | Start offset / depth | 1.0 mm above nominal / 2.0 mm |
 | Probe speed | 0.05 × Z 500 mm/s = 25 mm/s (`F1500`) |
-| Feeder / part height probing | **EachTime** |
+| Feeder / part height probing | **AfterHoming** (was EachTime until 2026-10-07 14:30, see "Probing frequency" below) |
 | Touch location (Z calibration) | N40 at (0.2, 22.0, **Z 0** – never probed); Z calibration trigger Manual |
 
 **Smoothie (`config.txt`) – the missing part:**
@@ -890,19 +890,41 @@ If picks then become unreliable, reduce it a little so the tip still presses lig
 **Measured 2026-10-07: *d* = 5.894 mm** (bed spot from the repeatability test: trip ≈ Z −48.54, contact ≈ Z −42.64).
 That's large: every probe pushes ≈ 6 mm into the spring before the switch trips. To do:
 
-- [ ] Repeat the measurement 2–3 times to confirm *d* is constant.
-- [ ] Preferably **adjust the switch on the head so it trips after ≈ 0.5–1 mm**, then re-measure *d*. Less force
-      on small parts and tape, and less margin needed in the probe command.
+- [x] Repeat the measurement 2–3 times to confirm *d* is constant. **Done 2026-10-07: varies by < 0.1 mm** –
+      good enough for this machine.
+- [x] ~~Adjust the switch on the head so it trips after ≈ 0.5–1 mm~~ – **decided 2026-10-07: switch left as it
+      is**, *d* is repeatable. Revisit only if small parts get pushed into the tape.
 - [x] Set **Final Adjustment = +d**: 5.894 set in `machine.xml` 2026-10-07 (the GUI can't save it, §12). Change it
       again if the switch is adjusted.
 - [ ] With *d* ≈ 6 mm, probing from 1 mm above nominal trips ≈ 7 mm lower, so `G38.2 Z-10` leaves only ≈ 3 mm
       margin. If the switch stays as it is, use `Z-12`, but only if the spring has that much travel left (check
       by hand that the nozzle doesn't bottom out before the switch trips).
-- [ ] Probe less often: feeder / placement height probing are on EachTime (a 6 mm spring push on every pick and
-      place). Consider probing once per feeder / part instead.
+- [x] Probe less often: feeder / placement height probing set to **AfterHoming** (2026-10-07), see below.
 
 If *d* is large (≳ 0.5–1 mm) or the force is too high for small parts (0201/0402 pushed into the tape): adjust the
 switch on the head so it trips earlier, then re-measure.
+
+### Probing frequency: AfterHoming
+
+Set 2026-10-07 in `machine.xml` (`feeder-height-probing` and `part-height-probing` on the `ContactProbeNozzle`),
+edited with OpenPnP closed, because the Contact Probe tab can't save these fields (§12).
+
+| Option | When it probes |
+|---|---|
+| Off | Never; nominal heights from the feeder and part settings |
+| Once | First use of each feeder / part; the result is kept in `machine.xml`, also across restarts |
+| **AfterHoming** (chosen) | First use of each feeder / part after each homing |
+| EachTime | Every pick and every place (≈ 1.4 s per probe, ≈ 3 s per part, 6 mm spring push each time) |
+
+- Homing doesn't probe anything. It only clears the stored heights. Each feeder is probed on its **first pick** of
+  the session; later picks reuse the stored offset. Feeders the job doesn't use are never probed.
+- Placement probing works the same per part type: first placement of each part after homing.
+- OpenPnP quirk: placement probing repeats on every place whenever *feeder* probing is EachTime, so change both
+  together.
+- Feeders whose part height is unknown are always probed, whatever the setting.
+- **No per-feeder on/off.** Workaround if a feeder must not be probed: use **Once** and put an entry with offset 0
+  for that feeder in `<probed-feeder-height-offsets>` (OpenPnP closed) – it then always picks at its nominal
+  height. Delete the entry to have it probed again. Only if a feeder actually has trouble with probing.
 
 ---
 
@@ -951,6 +973,7 @@ switch on the head so it trips earlier, then re-measure.
 | 2026-10-05 19:34 | TOP CAMERA Advanced Camera Calibration enabled (RMS 1.89 px) | – |
 | 2026-10-05 ~20:00 | BOTTOM Advanced Calibration **switched off**: its data was from the old Z −7.8 and no longer matched the new position → nozzle off the crosshair, N40 calibration failed after homing (0.77 mm > 0.5 mm). Off → nozzle calibration works | Re-enable only after a fresh calibration |
 | 2026-10-05 | Speed tests (`scripts/Speed_Test.js`): lost steps above 250 mm/s and at 3000 mm/s². Set X/Y to 200 mm/s, 1200 mm/s² in OpenPnP; Smoothie `x/y_axis_max_speed 15000`, `acceleration 1200` | OpenPnP x/y were 15000 mm/s, 1500 mm/s²; Smoothie 20000 / 2500 |
+| 2026-10-07 14:30 | `machine.xml`: nozzle N feeder and placement height probing EachTime → **AfterHoming**, edited in the file with OpenPnP closed. Copy in this folder updated (also has the nozzle tip changes made in the GUI since 10:41) | `~/.openpnp2/machine.xml.before-probe-afterhoming-20261007-1430` |
 | 2026-10-07 10:41 | `machine.xml`: nozzle N `contact-probe-adjust-z` (Final Adjustment) 0 → **5.894 mm**, edited in the file with OpenPnP closed (GUI Apply bug, see §12). N40 touch location (−17.8, 211.0, Z −18.02), Z calibration trigger NozzleTipChange (set in the GUI). Copy in this folder updated | `~/.openpnp2/machine.xml.before-probe-adjust-20261007-1041` |
 | 2026-10-07 | Z probing: `zprobe` module added to Smoothie `config.txt` (`zprobe.probe_pin 1.29^!`, §11). `N1PROBE` command changed to `G38.2 Z-10 F300` (was `Z-42 F1500`). Bed probe test: −48.533 / −48.527 / −48.554 | Remove the `zprobe` lines; old command in the 2026-10-05 `machine.xml` copy |
 | 2026-10-07 | E-stop indicator LED added: second NC contact block + FDN337N, 100k/33k gate divider (§10). Smoothie signal line untouched | Remove the LED board; nothing else changed |
@@ -1017,8 +1040,8 @@ Afterwards:
 - [ ] Check that the Smoothie 5 V rail isn't fed only from USB.
 - [x] E-stop indicator LED – done 2026-10-07, see §10.
 - [x] Z probing on Smoothie (2026-10-07): `zprobe` module on P1.29 added, `G38.2` tested, repeatable to 0.027 mm.
-- [ ] Z probe trigger delay: *d* measured **5.894 mm** (2026-10-07) – large. Adjust the head switch to trip
-      earlier, re-measure, set Final Adjustment (Contact Probe tab) = +d. Checklist in §11, "Trigger delay".
+- [x] Z probe trigger delay: *d* = **5.894 mm**, repeatable to < 0.1 mm (2026-10-07). Switch left as it is, Final
+      Adjustment set to 5.894 in `machine.xml`. Tip Z calibrations now within ±0.06 mm. Details in §11.
 - [ ] Z probing in OpenPnP: touch location + Z reference, Z calibration per tip, feeder/part height probing back
       on and checked in the log, then copy `machine.xml` and `config.txt` here (§11 steps 7–9).
 - [ ] Hardware e-stop: relay (Schrack RP310006, 220 Ω 5 W coil resistor) cutting motor 24 V, fail-safe NC kill
