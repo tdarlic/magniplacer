@@ -21,10 +21,11 @@ exit) to pick up GUI changes: `scp tdarlic@192.168.0.185:.openpnp2/machine.xml .
 8. [Vacuum sensing – Smoothieware config](#8-vacuum-sensing--smoothieware-config)
 9. [Vacuum sensing – OpenPnP config and part detection](#9-vacuum-sensing--openpnp-config-and-part-detection)
 10. [E-stop indicator LED](#10-e-stop-indicator-led)
-11. [Troubleshooting](#11-troubleshooting)
-12. [Change log – what was changed on the machine](#12-change-log--what-was-changed-on-the-machine)
-13. [Open items](#13-open-items)
-14. [References](#14-references)
+11. [Z probing (contact probe)](#11-z-probing-contact-probe)
+12. [Troubleshooting](#12-troubleshooting)
+13. [Change log – what was changed on the machine](#13-change-log--what-was-changed-on-the-machine)
+14. [Open items](#14-open-items)
+15. [References](#15-references)
 
 ---
 
@@ -654,7 +655,7 @@ margins or increase C4 to 47 nF.
 ## 10. E-stop indicator LED
 
 Built and working 2026-10-07. A LED in the e-stop box lights while the e-stop is pressed, so it's obvious before
-power-up (the Smoothie stays in its bootloader if the e-stop is pressed at power-up, see §11).
+power-up (the Smoothie stays in its bootloader if the e-stop is pressed at power-up, see §12).
 
 ### Why it isn't driven from the Smoothie signal
 
@@ -767,7 +768,145 @@ PSU +24V ── COM
 
 ---
 
-## 11. Troubleshooting
+## 11. Z probing (contact probe)
+
+Status 2026-10-07: **probing works on the Smoothie side** (zprobe module added, bed test repeatable to 0.027 mm).
+Still to do in OpenPnP: steps 7–9 of the procedure below. Originally **not working**; investigated from `smoothie-config.txt` and `machine.xml` in this folder
+(the live SD card wasn't read; the copy is from 2026-10-05 19:12 and nothing probe-related changed since).
+
+The machine is LitePlacer hardware: the nozzle holder is spring-loaded and a switch on the head trips when the
+nozzle touches something. OpenPnP uses that to find the real Z of feeders, parts and the nozzle tip touch location.
+
+### What's configured now
+
+**OpenPnP (`machine.xml`) – already set up:**
+
+| Setting | Value |
+|---|---|
+| Nozzle `N` class | `ContactProbeNozzle`, method `ContactSenseActuator` |
+| Probe actuator | `N1PROBE` (Boolean, after-actuation coordination `WaitForUnconditionalCoordination`) |
+| `ACTUATE_BOOLEAN_COMMAND` | `{True:G38.2 Z-42.0 F1500.0}` + `{True:M400}` (OpenPnP's own Smoothie suggestion: relative probe) |
+| `ACTUATOR_READ_COMMAND` / regex | `M119` / `.*\(Z\)P1\.29:(?<Value>[01]).*` → the probe switch is expected on **P1.29** |
+| Start offset / depth | 1.0 mm above nominal / 2.0 mm |
+| Probe speed | 0.05 × Z 500 mm/s = 25 mm/s (`F1500`) |
+| Feeder / part height probing | **EachTime** |
+| Touch location (Z calibration) | N40 at (0.2, 22.0, **Z 0** – never probed); Z calibration trigger Manual |
+
+**Smoothie (`config.txt`) – the missing part:**
+
+- **There is no `zprobe` section.** `G38.2` belongs to the zprobe module, so Smoothie doesn't execute it.
+- `return_error_on_unhandled_gcode false` hides that: Smoothie answers `ok`, nothing moves, OpenPnP reads the
+  unchanged position with `M114` and takes the **start height (1 mm above nominal)** as the "contact". With
+  feeder/part height probing on EachTime, picks can therefore happen too high. (Expected symptom, worked out from
+  the OpenPnP source – not yet seen in a log.)
+- **The probe switch is wired to P1.29** (Z-min endstop connector, confirmed by the user 2026-10-07). P1.29 is
+  `gamma_min_endstop 1.29^!`. Z homes to max (`1.28`, top), so the Z-min input is free for the probe switch. All switches are NO to GND with pull-up, inverted (`^!`): 1 = pressed.
+
+### Fix – what has to change
+
+1. **Smoothie:** add the zprobe module on the probe switch pin (P1.29, same polarity as the endstop line):
+
+   ```
+   zprobe.enable                 true
+   zprobe.probe_pin              1.29^!     # same pin and polarity as gamma_min_endstop; M119 checked 2026-10-07
+   zprobe.slow_feedrate          5          # mm/s, used when G38.2 has no F
+   zprobe.fast_feedrate          50         # mm/s
+   zprobe.return_feedrate        25         # mm/s
+   zprobe.debounce_count         100
+   zprobe.probe_height           5          # only used by G32 leveling, not by G38.2
+   ```
+
+   `gamma_min_endstop 1.29^!` can stay: Z homes to max, so the endstop module doesn't act on that pin. If it ever
+   interferes, set it to `nc` and switch the OpenPnP read regex to `Probe:` (step 6 below).
+2. **OpenPnP probe command – slower and shorter.** 25 mm/s is fast for a spring-loaded switch, and `Z-42` drives
+   the full Z travel if the switch never trips. Proposed:
+
+   ```
+   {True:G38.2 Z-10 F300 ; probe down 10 mm relative at 5 mm/s until the probe switch trips}
+   {True:M400            ; wait until machine has stopped}
+   ```
+
+   10 mm covers start offset + depth (3 mm) plus a generous error. If the switch doesn't trip, Smoothie raises a
+   probe-fail alarm and halts (`M999` to clear) – safer than a crash.
+3. **Until probing works:** set feeder and part height probing to **Off** (Machine Setup → Nozzles → N →
+   Contact Probe), so picks use the nominal heights instead of a fake "contact" 1 mm too high.
+
+### Procedure – connect and bring up the probe
+
+Send G-code from OpenPnP (Machine Setup → Drivers → GcodeDriver → Console), or close OpenPnP and use a serial
+terminal on `/dev/ttyACM0`. Keep a hand on the e-stop for every move test.
+
+1. **Check the switch and its polarity.** The switch is wired to the Z-min connector (P1.29), signal + GND.
+   Home. Send `M119`. Push the nozzle up by hand (with a tip fitted) and send `M119` again. `(Z)P1.29` must
+   change 0 → 1.
+   - It doesn't change at all: check the switch and the head cable (meter across the switch while pushing).
+   - **Done 2026-10-07:** pushed → `(Z)P1.29:1`, released → `(Z)P1.29:0`. Switch and wiring OK, polarity as in
+     `gamma_min_endstop 1.29^!` → use `zprobe.probe_pin 1.29^!`.
+   - It's 1 when released and 0 when pushed: the switch is NC. Use `1.29^` (no `!`) for the probe pin. That's
+     actually the better choice: a broken wire then reads "contact" and probing stops instead of crashing.
+2. **Edit `config.txt`** on the Smoothie SD card (as for the vacuum section, §8): add the `zprobe` block above.
+   Run `sync`, unmount, reset the board.
+3. **Check the module:** `M119` now also prints `Probe:`. It must follow the nozzle push like P1.29 did.
+4. **Probe by hand, in the air:** jog the nozzle to ~15 mm above an empty part of the bed. Send
+   `G38.2 Z-10 F300` and push the nozzle up with a finger while it moves down → it must stop at once. `M114` shows
+   the stop Z. Repeat without touching → probe-fail alarm, clear with `M999`.
+5. **Probe for real:** jog above a flat spot on the bed, ~5 mm high. `G38.2 Z-10 F300` → stops on the bed. Run it
+   3–5 times from the same start: the `M114` Z values should agree within ≈ 0.05 mm.
+   - **Done 2026-10-07:** Z −48.533, −48.527, −48.554 → spread 0.027 mm. OK.
+6. **OpenPnP actuator:** change the `N1PROBE` `ACTUATE_BOOLEAN_COMMAND` to the slower command above. Optional: read
+   regex `.*Probe:\s*(?<Value>[01]).*` instead of P1.29. Test the actuator read button with the nozzle pushed /
+   released.
+7. **Touch location + Z reference:** Machine Setup → Nozzle Tips → N40 → Tool Changer: set the **touch location**
+   on a permanent, flat reference (near the changer, never moved). Use its probe button **once** to set the
+   reference Z (later presses overwrite the "eternal" reference). Then run Z calibration; repeat per tip.
+8. **Turn probing back on:** feeder height probing (start with EachTime on one feeder, watch the log), then part
+   height probing. Pick from a strip and check the probed Z in the log is near the feeder's nominal Z.
+9. Save the config and copy `machine.xml` and `config.txt` into this folder.
+
+### Trigger delay: spring compression before the switch trips
+
+Seen 2026-10-07: the switch doesn't trip when the tip first touches. The nozzle holder spring compresses first, then
+the switch trips. So the probe stops **below** the real contact height, by a fixed amount *d* (spring travel +
+switch pre-travel). That's normal for a spring-loaded LitePlacer head, as long as *d* is the same every time.
+
+What it affects:
+
+- **Z calibration of the tips:** not affected. The touch location and every tip are probed the same way, so *d*
+  cancels out.
+- **Feeder / part / placement heights:** the probed Z is *d* too low. The nozzle presses the part with the spring
+  force before the switch trips, and learned part heights are off by *d*.
+
+Measure *d* (paper method, ≈ 0.08–0.1 mm paper, same flat spot as the repeatability test):
+
+1. Probe the spot: `G38.2 Z-10 F300`, then `M114` → **Z_trip**.
+2. Jog up in 0.05 mm steps, sliding a strip of paper under the tip after each step. Note the Z where the paper
+   first slides freely → **Z_contact** (subtract the paper thickness for the exact touch height).
+3. *d* = Z_contact − Z_trip. Repeat 2–3 times.
+
+Compensate in OpenPnP: Machine Setup → Nozzles → N → **Contact Probe** tab → **Final Adjustment = +d**
+(`contact-probe-adjust-z`, now 0). OpenPnP adds it to the probed Z, so positive = up, back to the real contact.
+If picks then become unreliable, reduce it a little so the tip still presses lightly on the part.
+
+**Measured 2026-10-07: *d* = 5.894 mm** (bed spot from the repeatability test: trip ≈ Z −48.54, contact ≈ Z −42.64).
+That's large: every probe pushes ≈ 6 mm into the spring before the switch trips. To do:
+
+- [ ] Repeat the measurement 2–3 times to confirm *d* is constant.
+- [ ] Preferably **adjust the switch on the head so it trips after ≈ 0.5–1 mm**, then re-measure *d*. Less force
+      on small parts and tape, and less margin needed in the probe command.
+- [x] Set **Final Adjustment = +d**: 5.894 set in `machine.xml` 2026-10-07 (the GUI can't save it, §12). Change it
+      again if the switch is adjusted.
+- [ ] With *d* ≈ 6 mm, probing from 1 mm above nominal trips ≈ 7 mm lower, so `G38.2 Z-10` leaves only ≈ 3 mm
+      margin. If the switch stays as it is, use `Z-12`, but only if the spring has that much travel left (check
+      by hand that the nozzle doesn't bottom out before the switch trips).
+- [ ] Probe less often: feeder / placement height probing are on EachTime (a 6 mm spring push on every pick and
+      place). Consider probing once per feeder / part instead.
+
+If *d* is large (≳ 0.5–1 mm) or the force is too high for small parts (0201/0402 pushed into the tape): adjust the
+switch on the head so it trips earlier, then re-measure.
+
+---
+
+## 12. Troubleshooting
 
 | Symptom | Likely cause |
 |---|---|
@@ -785,11 +924,12 @@ PSU +24V ── COM
 | Vacuum builds too slowly / weak pick | Restriction too narrow; leaks in tubing |
 | Op-amp or Smoothie dead after rework | Check the VBB/3.3V/GND connector wiring – VBB on the 3.3 V wire |
 | Smoothie gives no serial port (`ttyACM0`) and no SD drive; PC log shows `Product: Smoothie`, `Manufacturer: SmoothieWare`, `bcdDevice 0.40` instead of `Smoothieboard` / `Uberclock` | Board waiting in its bootloader. **Most likely cause: e-stop pressed at power-up.** The e-stop is on `kill_button_pin 2.12`, the same pin as the board's play button, which (probably) makes the bootloader wait. The e-stop LED (§10) is lit when it's pressed. Release the e-stop and reset / power-cycle. If it still stays in the bootloader: copy `FIRMWARE.CUR` to `firmware.bin` on the SD card to reflash (2026-10-05) |
+| Contact Probe tab (Nozzles → N): Final Adjustment, Feeder/Placement Height Probing, Discard Probing or Calibration Z Offset don't stick after Apply + Save; log shows `UnsupportedOperationException: Unwritable` at `JBindings$WrappedBinding.save` | **OpenPnP bug** in the installed build: `sniffleDwellTime` has a `long` getter but an `int` setter, so its binding is unwritable. Apply saves the fields in order and stops at that one, so every field after it is lost. Workaround: close OpenPnP (it saves on exit), back up `machine.xml`, edit the `ContactProbeNozzle` values there (e.g. `<contact-probe-adjust-z value="…">`), restart (2026-10-07) |
 | PC says the Smoothie SD card "was not properly unmounted" | The card's FAT dirty flag. Close OpenPnP, `udisksctl unmount -b /dev/sdb1`, `sudo fsck.vfat -a /dev/sdb1`, reset the board. After editing `config.txt` run `sync` before resetting |
 
 ---
 
-## 12. Change log – what was changed on the machine
+## 13. Change log – what was changed on the machine
 
 | Date | Change | Undo / backup |
 |---|---|---|
@@ -811,11 +951,13 @@ PSU +24V ── COM
 | 2026-10-05 19:34 | TOP CAMERA Advanced Camera Calibration enabled (RMS 1.89 px) | – |
 | 2026-10-05 ~20:00 | BOTTOM Advanced Calibration **switched off**: its data was from the old Z −7.8 and no longer matched the new position → nozzle off the crosshair, N40 calibration failed after homing (0.77 mm > 0.5 mm). Off → nozzle calibration works | Re-enable only after a fresh calibration |
 | 2026-10-05 | Speed tests (`scripts/Speed_Test.js`): lost steps above 250 mm/s and at 3000 mm/s². Set X/Y to 200 mm/s, 1200 mm/s² in OpenPnP; Smoothie `x/y_axis_max_speed 15000`, `acceleration 1200` | OpenPnP x/y were 15000 mm/s, 1500 mm/s²; Smoothie 20000 / 2500 |
+| 2026-10-07 10:41 | `machine.xml`: nozzle N `contact-probe-adjust-z` (Final Adjustment) 0 → **5.894 mm**, edited in the file with OpenPnP closed (GUI Apply bug, see §12). N40 touch location (−17.8, 211.0, Z −18.02), Z calibration trigger NozzleTipChange (set in the GUI). Copy in this folder updated | `~/.openpnp2/machine.xml.before-probe-adjust-20261007-1041` |
+| 2026-10-07 | Z probing: `zprobe` module added to Smoothie `config.txt` (`zprobe.probe_pin 1.29^!`, §11). `N1PROBE` command changed to `G38.2 Z-10 F300` (was `Z-42 F1500`). Bed probe test: −48.533 / −48.527 / −48.554 | Remove the `zprobe` lines; old command in the 2026-10-05 `machine.xml` copy |
 | 2026-10-07 | E-stop indicator LED added: second NC contact block + FDN337N, 100k/33k gate divider (§10). Smoothie signal line untouched | Remove the LED board; nothing else changed |
 
 ---
 
-## 13. Open items
+## 14. Open items
 
 ### Next session (2026-10-06): bottom camera Advanced Calibration
 
@@ -874,6 +1016,11 @@ Afterwards:
 - [ ] Recreate the 15 production strip feeders (table in §2). Only `Upper Strips - 1` exists.
 - [ ] Check that the Smoothie 5 V rail isn't fed only from USB.
 - [x] E-stop indicator LED – done 2026-10-07, see §10.
+- [x] Z probing on Smoothie (2026-10-07): `zprobe` module on P1.29 added, `G38.2` tested, repeatable to 0.027 mm.
+- [ ] Z probe trigger delay: *d* measured **5.894 mm** (2026-10-07) – large. Adjust the head switch to trip
+      earlier, re-measure, set Final Adjustment (Contact Probe tab) = +d. Checklist in §11, "Trigger delay".
+- [ ] Z probing in OpenPnP: touch location + Z reference, Z calibration per tip, feeder/part height probing back
+      on and checked in the log, then copy `machine.xml` and `config.txt` here (§11 steps 7–9).
 - [ ] Hardware e-stop: relay (Schrack RP310006, 220 Ω 5 W coil resistor) cutting motor 24 V, fail-safe NC kill
       input moved off P2.12, Smoothie logic on its own 5 V. Plan and checklist in §10.
 - [x] **Lost steps at 100 % speed** – **solved 2026-10-05**, settings applied at 19:10 (see the end of this item) (fine at 80 %, which also means 64 % acceleration – OpenPnP scales acceleration
@@ -918,11 +1065,13 @@ Afterwards:
 
 ---
 
-## 14. References
+## 15. References
 
 - Vacuum sensor PCB document: `vacuum-sensor.md` (GitHub vacuum sensor PCB project)
 - Reference copy of the OpenPnP machine config: `machine.xml` (this folder; live file is `~/.openpnp2/machine.xml`)
 - OpenPnP 2.0 upgrade notes: `/opt/openpnp/OPENPNP_2_0.md` on the PnP PC
+- OpenPnP wiki – Contact Probing Nozzle: <https://github.com/openpnp/openpnp/wiki/Contact-Probing-Nozzle>
+- Smoothieware – zprobe module (config, G30, G38.x): <https://smoothieware.org/zprobe>
 - OpenPnP wiki – Vacuum Sensing: <https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration_Vacuum-Sensing>
 - Smoothieware temperature control (incl. AD8495 section): <https://smoothieware.org/temperaturecontrol>
 - Microchip MCP6001/1R/1U/2/4 datasheet (DS20001733L):
