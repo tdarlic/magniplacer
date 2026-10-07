@@ -1,4 +1,4 @@
-# OpenPnP machine – upgrade to 2.6, cameras, lighting and vacuum sensing
+# OpenPnP machine – upgrade to 2.6, cameras, lighting, vacuum sensing and e-stop
 
 Notes from the setup work in September 2026. Written so the machine can be modified later without
 re-discovering everything. **Last checked against the live machine: 2026-10-05** (over SSH, read-only, with
@@ -20,10 +20,11 @@ exit) to pick up GUI changes: `scp tdarlic@192.168.0.185:.openpnp2/machine.xml .
 7. [Vacuum sensing – as built on this machine](#7-vacuum-sensing--as-built-on-this-machine)
 8. [Vacuum sensing – Smoothieware config](#8-vacuum-sensing--smoothieware-config)
 9. [Vacuum sensing – OpenPnP config and part detection](#9-vacuum-sensing--openpnp-config-and-part-detection)
-10. [Troubleshooting](#10-troubleshooting)
-11. [Change log – what was changed on the machine](#11-change-log--what-was-changed-on-the-machine)
-12. [Open items](#12-open-items)
-13. [References](#13-references)
+10. [E-stop indicator LED](#10-e-stop-indicator-led)
+11. [Troubleshooting](#11-troubleshooting)
+12. [Change log – what was changed on the machine](#12-change-log--what-was-changed-on-the-machine)
+13. [Open items](#13-open-items)
+14. [References](#14-references)
 
 ---
 
@@ -650,7 +651,65 @@ margins or increase C4 to 47 nF.
 
 ---
 
-## 10. Troubleshooting
+## 10. E-stop indicator LED
+
+Built and working 2026-10-07. A LED in the e-stop box lights while the e-stop is pressed, so it's obvious before
+power-up (the Smoothie stays in its bootloader if the e-stop is pressed at power-up, see §11).
+
+### Why it isn't driven from the Smoothie signal
+
+The e-stop's first contact pulls `kill_button_pin 2.12` to Smoothie GND. That line is only held high by a weak
+pull-up, so it **must not be loaded**. A first try with an NPN transistor (base through 1 kΩ on the signal) failed:
+the base-emitter junction clamps the line at ≈ 0.7 V (it would need ≈ 2.6 mA), so the board read "pressed" and
+didn't boot. The LED is therefore driven from the e-stop's **second, separate NC contact**, which has no electrical
+connection to the Smoothie.
+
+### Circuit
+
+The NC contact is closed while the e-stop is released and opens when it's pressed, so one N-MOSFET inverts it:
+
+```
+        +24V                      +24V
+          |                         |
+        R1 100k                LED + series R
+          |                         |
+          |                      D  |
+          +-------------+-----G----Q1 FDN337N
+          |             |        S  |
+     NC contact       R2 33k        |
+     (2nd block)        |           |
+          |             |           |
+         GND           GND         GND
+   (gate node = junction of R1, R2 and the NC contact)
+```
+
+| State | NC contact | Q1 gate | LED |
+|---|---|---|---|
+| E-stop released | closed | 0 V (shorted to GND) | off |
+| E-stop pressed | open | 24 V × 33k / 133k ≈ 5.95 V | on |
+
+- **Q1 = FDN337N** (logic-level, fully on from ≈ 2.5 V, 2.2 A). Its gate is rated **±8 V absolute max**, so R2 is
+  required: without it the gate would see the full 24 V. With 33k the gate gets ≈ 6 V (≈ 6.5 V at 26 V supply).
+  For more margin use two 33k in parallel (≈ 3.4 V, still fully on). 27k (≈ 5 V) was the first choice.
+- If a BSS138 or 2N7000 is used instead (±20 V gate, ≤ 150–200 mA LED current): R2 = 68k (≈ 10 V).
+- R1 draws a constant 0.24 mA through the NC contact while the e-stop is released.
+- LED series resistor: (24 V − Vf) / I, e.g. one red LED at 7–10 mA → 2.2–3.3 kΩ, 0.5 W. A 24 V indicator
+  lamp needs no resistor.
+- Emergency stop connection at the chassis is like this:
+  - 1 - switch - cable line white
+  - 2 24V - cable line brown
+  - 3 GND - cable line yellow
+  - 4 3.3V cable line green
+
+### Checks
+
+- The second contact block must be **electrically separate** from the one wired to P2.12 (no shared common).
+  Otherwise 24 V reaches a 3.3 V pin. Check with a meter: no continuity between the two blocks, pressed or released.
+- The e-stop is still only a firmware halt (`kill_button`); it doesn't cut the 24 V motor supply.
+
+---
+
+## 11. Troubleshooting
 
 | Symptom | Likely cause |
 |---|---|
@@ -667,12 +726,12 @@ margins or increase C4 to 47 nF.
 | Output oscillates (check with a scope) | R3 missing or shorted |
 | Vacuum builds too slowly / weak pick | Restriction too narrow; leaks in tubing |
 | Op-amp or Smoothie dead after rework | Check the VBB/3.3V/GND connector wiring – VBB on the 3.3 V wire |
-| Smoothie gives no serial port (`ttyACM0`) and no SD drive; PC log shows `Product: Smoothie`, `Manufacturer: SmoothieWare`, `bcdDevice 0.40` instead of `Smoothieboard` / `Uberclock` | Board waiting in its bootloader. **Most likely cause: e-stop pressed at power-up.** The e-stop is on `kill_button_pin 2.12`, the same pin as the board's play button, which (probably) makes the bootloader wait. Release the e-stop and reset / power-cycle. If it still stays in the bootloader: copy `FIRMWARE.CUR` to `firmware.bin` on the SD card to reflash (2026-10-05) |
+| Smoothie gives no serial port (`ttyACM0`) and no SD drive; PC log shows `Product: Smoothie`, `Manufacturer: SmoothieWare`, `bcdDevice 0.40` instead of `Smoothieboard` / `Uberclock` | Board waiting in its bootloader. **Most likely cause: e-stop pressed at power-up.** The e-stop is on `kill_button_pin 2.12`, the same pin as the board's play button, which (probably) makes the bootloader wait. The e-stop LED (§10) is lit when it's pressed. Release the e-stop and reset / power-cycle. If it still stays in the bootloader: copy `FIRMWARE.CUR` to `firmware.bin` on the SD card to reflash (2026-10-05) |
 | PC says the Smoothie SD card "was not properly unmounted" | The card's FAT dirty flag. Close OpenPnP, `udisksctl unmount -b /dev/sdb1`, `sudo fsck.vfat -a /dev/sdb1`, reset the board. After editing `config.txt` run `sync` before resetting |
 
 ---
 
-## 11. Change log – what was changed on the machine
+## 12. Change log – what was changed on the machine
 
 | Date | Change | Undo / backup |
 |---|---|---|
@@ -694,10 +753,11 @@ margins or increase C4 to 47 nF.
 | 2026-10-05 19:34 | TOP CAMERA Advanced Camera Calibration enabled (RMS 1.89 px) | – |
 | 2026-10-05 ~20:00 | BOTTOM Advanced Calibration **switched off**: its data was from the old Z −7.8 and no longer matched the new position → nozzle off the crosshair, N40 calibration failed after homing (0.77 mm > 0.5 mm). Off → nozzle calibration works | Re-enable only after a fresh calibration |
 | 2026-10-05 | Speed tests (`scripts/Speed_Test.js`): lost steps above 250 mm/s and at 3000 mm/s². Set X/Y to 200 mm/s, 1200 mm/s² in OpenPnP; Smoothie `x/y_axis_max_speed 15000`, `acceleration 1200` | OpenPnP x/y were 15000 mm/s, 1500 mm/s²; Smoothie 20000 / 2500 |
+| 2026-10-07 | E-stop indicator LED added: second NC contact block + FDN337N, 100k/33k gate divider (§10). Smoothie signal line untouched | Remove the LED board; nothing else changed |
 
 ---
 
-## 12. Open items
+## 13. Open items
 
 ### Next session (2026-10-06): bottom camera Advanced Calibration
 
@@ -755,11 +815,9 @@ Afterwards:
 - [ ] Merge the rest of the v1 `parts.xml` / `packages.xml` into `~/.openpnp2` (only 6 parts so far).
 - [ ] Recreate the 15 production strip feeders (table in §2). Only `Upper Strips - 1` exists.
 - [ ] Check that the Smoothie 5 V rail isn't fed only from USB.
-- [ ] E-stop box: add an indicator LED that shows when the e-stop is pressed. Use a separate NO contact block, with
-      the LED on 24 V (24 V indicator, or LED + 2.2 kΩ 0.5 W). **Never load the P2.12 signal line**: it's only held
-      high by a pull-up, and an LED there can make the board read "pressed" (machine halts, or stays in the
-      bootloader at power-up). Consider also cutting the 24 V motor supply with the e-stop (relay/contactor); the
-      kill button is only a firmware halt.
+- [x] E-stop indicator LED – done 2026-10-07, see §10.
+- [ ] Consider cutting the 24 V motor supply with the e-stop (relay/contactor); the kill button is only a firmware
+      halt.
 - [x] **Lost steps at 100 % speed** – **solved 2026-10-05**, settings applied at 19:10 (see the end of this item) (fine at 80 %, which also means 64 % acceleration – OpenPnP scales acceleration
       by speed²). X/Y motors are 17HM19-2004S (0.9°, 2.0 A) but run at 0.5 / 0.6 A (`alpha/beta_current`).
       Raise the current, then run `scripts/Speed_Test.js` (copy to `~/.openpnp2/scripts/`). It steps up feed rate
@@ -802,7 +860,7 @@ Afterwards:
 
 ---
 
-## 13. References
+## 14. References
 
 - Vacuum sensor PCB document: `vacuum-sensor.md` (GitHub vacuum sensor PCB project)
 - Reference copy of the OpenPnP machine config: `machine.xml` (this folder; live file is `~/.openpnp2/machine.xml`)
