@@ -22,10 +22,11 @@ exit) to pick up GUI changes: `scp tdarlic@192.168.0.185:.openpnp2/machine.xml .
 9. [Vacuum sensing – OpenPnP config and part detection](#9-vacuum-sensing--openpnp-config-and-part-detection)
 10. [E-stop indicator LED](#10-e-stop-indicator-led)
 11. [Z probing (contact probe)](#11-z-probing-contact-probe)
-12. [Troubleshooting](#12-troubleshooting)
-13. [Change log – what was changed on the machine](#13-change-log--what-was-changed-on-the-machine)
-14. [Open items](#14-open-items)
-15. [References](#15-references)
+12. [Y axis – Leadshine iES-1706 servo (planned)](#12-y-axis--leadshine-ies-1706-servo-planned)
+13. [Troubleshooting](#13-troubleshooting)
+14. [Change log – what was changed on the machine](#14-change-log--what-was-changed-on-the-machine)
+15. [Open items](#15-open-items)
+16. [References](#16-references)
 
 ---
 
@@ -43,7 +44,7 @@ exit) to pick up GUI changes: `scp tdarlic@192.168.0.185:.openpnp2/machine.xml .
 | Serial port | `/dev/ttyACM0`, 115200 baud (Smoothieboard USB `1d50:6015`) |
 | Nozzle | `N` (id `N1`), `ContactProbeNozzle`, probe actuator `N1PROBE` (G38.2, reads P1.29 via M119) |
 | Nozzle tips | 6 tips in an automatic tip changer: N045 (`NT1`), N40, N14, N24, N400, N750 (see below) |
-| Top camera | `TOP CAMERA`, Logitech C270 (`046d:0825`), USB port `usb-0000:00:14.0-9`, 1280×960. **To be replaced** by a new ULP camera (ordered 2026-10-08, see §13) |
+| Top camera | `TOP CAMERA`, Logitech C270 (`046d:0825`), USB port `usb-0000:00:14.0-9`, 1280×960. **To be replaced** by a new ULP camera (ordered 2026-10-08, see §15) |
 | Bottom camera | `BOTTOM`, "HD USB Camera" (`05a3:9310`), USB port `usb-0000:00:14.0-2`, 960×720 |
 
 ### Actuators (v2 config)
@@ -655,7 +656,7 @@ margins or increase C4 to 47 nF.
 ## 10. E-stop indicator LED
 
 Built and working 2026-10-07. A LED in the e-stop box lights while the e-stop is pressed, so it's obvious before
-power-up (the Smoothie stays in its bootloader if the e-stop is pressed at power-up, see §12).
+power-up (the Smoothie stays in its bootloader if the e-stop is pressed at power-up, see §13).
 
 ### Why it isn't driven from the Smoothie signal
 
@@ -747,8 +748,9 @@ PSU +24V ── COM
 - Cut on the **DC side** after the PSU (mains-side cut leaves the PSU capacitors powering the motors for a moment).
 - With the relay's NC contact driving the LED, the FET LED circuit above can be removed. The LED then shows what
   the relay actually did.
-- Releasing the e-stop re-powers the motors, but the Smoothie stays in its kill state until reset (`M999` / reset
-  in OpenPnP), so nothing moves on its own.
+- Releasing the e-stop re-powers the motors. **Note:** with `kill_button_toggle_enable true` Smoothie clears the
+  halt by itself on release (`unkill_enable` defaults to true). Set `unkill_enable false` so it stays halted until
+  `M999` (see "Fail-safe kill loop" below).
 - PCB relay pins: use a socket or a piece of perfboard, heatshrink every joint, motor-power wire sized for the
   VBB current.
 
@@ -768,7 +770,8 @@ e-stop NO block ──► Smoothie kill input (as now)
 - E-stop NC block: moves from the FET LED circuit to the contactor coil. The FET LED circuit can then be removed.
 - E-stop NO block: stays on the Smoothie kill input, so the firmware still halts. Cutting only the power would
   leave the Smoothie running G-code with dead motors; on release the motors would come back at the wrong
-  position. After an e-stop: `M999` and home.
+  position. After an e-stop: `M999` and home. Final version: replace this NO block with a second NC block for the
+  fail-safe kill loop below.
 - 1NO + 1NC rather than 2NO: one pole is plenty for a few amps at 24 V DC, and the NC contact drives the LED.
   (2NO would allow two poles in series for better DC breaking, but leaves no contact for the LED.)
 - Check the contacts' **DC-1 rating at 24 V** covers the VBB current; most small contactors are rated for AC.
@@ -780,15 +783,68 @@ e-stop NO block ──► Smoothie kill input (as now)
 
 - [ ] **Smoothie logic on its own 5 V.** If the 5 V comes from VBB through the on-board regulator, cutting VBB
       reboots the board on every e-stop.
-- [ ] **Fail-safe kill input.** Feed the Smoothie kill input from a **NC** contact (e-stop block 2): pin held low
-      in normal running, pressed or a broken wire → pull-up takes it high → kill. Set the polarity with `^` / `!`
-      in `kill_button_pin` and test both ways. Today the contact closes when pressed, so a broken wire goes
-      unnoticed.
-- [ ] **Move the kill input off P2.12** (the play-button pin, which makes the bootloader wait at power-up). With a
-      NC contact P2.12 would be low all the time and the board might never boot. `smoothie-config.txt` suggests
-      `2.11`; check it's free first. Then an e-stop pressed at power-up just boots into the kill state.
-- [ ] This needs two NC blocks on the e-stop (relay coil + kill input). Today there's one NC and one NO; add a
-      snap-on NC block, or feed the kill input from a spare relay contact.
+- [ ] **Fail-safe kill loop on P1.30** – see below. Today the NO contact closes when pressed, so a broken wire
+      goes unnoticed.
+- [ ] **Move the kill input off P2.12** (PLAY button, makes the bootloader wait at power-up). With a NC loop P2.12
+      would be low all the time and the board would never boot.
+- [ ] This needs two NC blocks on the e-stop (coil + kill loop). Today there's one NC and one NO: swap the NO block
+      for a NC block.
+
+### Fail-safe kill loop (planned)
+
+Planned 2026-10-08. One loop that halts the Smoothie on e-stop, Y servo alarm (§12) or a broken wire.
+
+**Pin: P1.30 on header JP32** (from `smoothieboard-5driver-schematic.pdf`, sheet 1, in this folder):
+
+| Pin | On this board | Use for kill? |
+|---|---|---|
+| P2.10 | ISP_BOOT button | no |
+| P2.11 | **SD card detect (SD_CD)** – the config comment "2.11 is another good choice" doesn't apply to this board | no |
+| P2.12 | PLAY button (current kill pin); low at power-up → bootloader waits | no (for a NC loop) |
+| P1.22 | JP32 – AVAC valve output (`switch.n1_vac`) | no |
+| **P1.30** | JP32, free | **yes** (P1.31, P1.23 on JP32 also free) |
+
+Check the JP32 pin order on the board silkscreen.
+
+```
+ 3.3V ── 4.7k ──┬──────────────► Smoothie P1.30 (JP32)
+                │   100nF to GND at the board (noise on the long cable)
+                │
+         e-stop NC block #2
+                │
+              ALM+  (iES-1706 Y servo, isolated output transistor)
+              ALM−
+                │
+ Smoothie GND (JP32 GND) ◄──────┘
+```
+
+- Normal: e-stop closed + servo OK (ALM closed) → pin low. E-stop pressed, servo alarm or broken wire → loop
+  open → pull-up → pin high → halt.
+- ALM+ on the pull-up side, ALM− on GND. Loop current 3.3 V / 4.7k ≈ 0.7 mA (ALM max 20 mA).
+- External 4.7k pull-up: the internal `^` pull-up is too weak for the cable to the e-stop box.
+- Keep the 24 V coil circuit (NC #1) and this 3.3 V loop (NC #2) on separate contact blocks.
+- Until the iES is fitted: e-stop NC #2 alone (short ALM+/ALM− or leave the servo out of the loop).
+
+Smoothie config:
+
+```
+kill_button_enable           true
+kill_button_pin              1.30^!     # Smoothie counts a LOW pin as pressed; ! makes an open loop (high) = pressed
+kill_button_toggle_enable    true
+unkill_enable                false      # stay halted after release until M999 (default true = auto-clear on release)
+```
+
+(KillButton.cpp: "pressed" is `!kill_button.get()`, i.e. pin low; toggle mode + `unkill_enable` clears the halt
+on release.)
+
+Tests after wiring:
+
+1. Power up with the e-stop pressed → boots normally (no bootloader), comes up halted.
+2. Release → stays halted until `M999`.
+3. Press while jogging → halt, "ALARM: Kill button pressed".
+4. Unplug the ALM wire → halt.
+5. The iES ALM also opens while its power is cut (e-stop / contactor) – consistent, the machine is halted anyway.
+   A servo alarm clears only by power-cycling the iES.
 
 ---
 
@@ -918,7 +974,7 @@ That's large: every probe pushes ≈ 6 mm into the spring before the switch trip
       good enough for this machine.
 - [x] ~~Adjust the switch on the head so it trips after ≈ 0.5–1 mm~~ – **decided 2026-10-07: switch left as it
       is**, *d* is repeatable. Revisit only if small parts get pushed into the tape.
-- [x] Set **Final Adjustment = +d**: 5.894 set in `machine.xml` 2026-10-07 (the GUI can't save it, §12). Change it
+- [x] Set **Final Adjustment = +d**: 5.894 set in `machine.xml` 2026-10-07 (the GUI can't save it, §13). Change it
       again if the switch is adjusted.
 - [ ] With *d* ≈ 6 mm, probing from 1 mm above nominal trips ≈ 7 mm lower, so `G38.2 Z-10` leaves only ≈ 3 mm
       margin. If the switch stays as it is, use `Z-12`, but only if the spring has that much travel left (check
@@ -931,7 +987,7 @@ switch on the head so it trips earlier, then re-measure.
 ### Probing frequency: AfterHoming
 
 Set 2026-10-07 in `machine.xml` (`feeder-height-probing` and `part-height-probing` on the `ContactProbeNozzle`),
-edited with OpenPnP closed, because the Contact Probe tab can't save these fields (§12).
+edited with OpenPnP closed, because the Contact Probe tab can't save these fields (§13).
 
 | Option | When it probes |
 |---|---|
@@ -952,7 +1008,110 @@ edited with OpenPnP closed, because the Contact Probe tab can't save these field
 
 ---
 
-## 12. Troubleshooting
+## 12. Y axis – Leadshine iES-1706 servo (planned)
+
+Planned 2026-10-08: replace the Y stepper (17HM19-2004S on the on-board driver) with a **Leadshine iES-1706**
+integrated step-servo (NEMA 17, 0.6 N·m, 1000-line encoder, drive built in). The Smoothie only sends step and
+direction. A connector with the step/dir signals from the Smoothie to the outside is already prepared.
+
+**Checked 2026-10-08 against `Datasheet of the iES-1706.pdf` (in this folder):** pinout, signal levels, DIP switches
+and alarm/in-position behaviour match the IES-series hardware manual. Differences for the 1706: supply **18–32 V DC**
+(over-voltage protection at 38 V), max pulse input **200 kHz** (no 500 kHz mode listed), 6 A peak motor current.
+
+### iES-1706 interface
+
+| Pin | Signal | Notes |
+|---|---|---|
+| 1 / 2 | PUL+ / PUL− | Optocoupler input. High 4.5–24 V, low 0–0.5 V, 7–16 mA (typ. 10 mA). Pulse width **≥ 2.5 µs**, max 200 kHz |
+| 3 / 4 | DIR+ / DIR− | Same levels. DIR must be set **≥ 5 µs before** the pulse |
+| 5 / 6 | ENA+ / ENA− | Leave unconnected = enabled |
+| 7 / 8 | PED+ / PED− | In-position, isolated open collector, max 24 V / 20 mA. Default: open while moving, closed at target |
+| 9 / 10 | ALM+ / ALM− | Alarm, isolated open collector, max 24 V / 20 mA. Default: **closed in normal operation, opens on a fault** (over-current, over-voltage, position following error > 1000 pulses) – fail-safe. Clear by power-cycling the drive |
+| Power | +Vdc / GND | **18–32 V DC**, typ. 24 V (over-voltage protection trips above 38 V). No reverse-polarity protection; never plug/unplug with power on |
+
+DIP switches: S1–S4 resolution (all On = software value, default 4000 pulses/rev), S5 direction, S6 active pulse edge
+(On = rising).
+
+### Signal conversion: 3.3 V Smoothie → iES
+
+The Smoothie step/dir pins are 3.3 V and can source only a few mA – too little for the iES optocouplers
+(4.5 V min, ≈ 10 mA).
+
+- **DST-1R4P-N 4-channel converter (on hand): not for STEP.** It's a PC817-type optocoupler board, max ≈ 20 kHz.
+  Smoothie's step pulses (1–3 µs) are shorter than a PC817 can switch, so steps would be lost without any error;
+  20 kHz would also cap Y at ≈ 200 mm/s. **OK for DIR** (changes only between moves) and ENA.
+- **Planned: own converter with FDN337N** (low-side switch per signal, switches in well under 1 µs):
+
+```
+          +5V                                   +5V
+           |                                     |
+         PUL+  (iES)                           DIR+  (iES)
+         PUL−                                  DIR−
+           |                                     |
+           D                                     D
+ step ─100Ω─G  Q1 FDN337N             dir ─100Ω─G  Q2 FDN337N
+        10k |                                10k |
+       to S S                               to S S
+           |                                     |
+      Smoothie GND                          Smoothie GND
+```
+
+- 5 V on PUL+/DIR+ gives ≈ 10–13 mA through the iES optocoupler (inside the 7–16 mA range). 24 V also works
+  per the manual if 5 V isn't available.
+- FDN337N: Vgs(th) 0.4–1 V, fully on at 3.3 V; gate max ±8 V (fine at 3.3 V). 100 Ω series gate resistor,
+  10 kΩ gate-to-source pull-down so the input is defined while the Smoothie boots.
+- Smoothie pin high → FET on → iES opto on. If Y runs the wrong way: DIP S5 or `!` on `beta_dir_pin`. If steps
+  are lost: try the other pulse edge (S6).
+- Until the FDN337N board exists, the DST-1R4P-N can carry DIR (DIR+ to the module's VCC, DIR− to its Q output).
+- Twisted pair for step/dir (manual: recommended over 50 cm), away from motor and power cables.
+
+### Smoothie config changes
+
+```
+microseconds_per_step_pulse   3        # was 1; iES needs ≥ 2.5 µs (applies to all axes, fine for the on-board drivers)
+beta_steps_per_mm             100      # 4000 pulses/rev ÷ 40 mm/rev (now 320 = 12800 microsteps/rev ÷ 40 mm/rev)
+beta_current                  0        # on-board Y driver idle, no motor on it
+```
+
+- **4000 pulses/rev** matches the encoder (1000 lines × 4 = 4000 counts/rev): 0.01 mm per step. DIP S1 On, S2 Off,
+  S3 On, S4 Off – or all On (software default 4000).
+- Step-rate ceiling rises from ≈ 312 mm/s (100 kHz ÷ 320 steps/mm) to ≈ 1000 mm/s (÷ 100); torque sets the real
+  limit. Re-run `scripts/Speed_Test.js` and set the Y feed rate / acceleration in OpenPnP from the result.
+- **DIR setup time:** Smoothie has no setting for the 5 µs DIR-before-STEP. Usually fine; if Y drifts slowly after
+  many direction changes, suspect this first.
+- Check the Y steps/mm after the swap (move 300 mm, measure with the camera on a ruler / fiducials).
+
+### Alarm and in-position outputs
+
+- **ALM → stop the machine.** Final: in series with e-stop NC block #2 in the fail-safe kill loop on **P1.30**
+  (§10, "Fail-safe kill loop"): e-stop, servo fault or a broken wire all halt the Smoothie.
+  Until then: ALM+ to a spare Smoothie input with pull-up, ALM− to Smoothie GND, configured as a Y limit
+  (`beta_limit_enable true` on that pin) so Smoothie halts if it opens during a move. Not through the DST module –
+  ALM is already isolated.
+- **PED (in-position):** not needed at first (OpenPnP's camera settle covers it). Could later confirm Y has settled
+  before vision.
+
+### Power and e-stop
+
+- Own 24 V supply (or the main 24 V PSU; 18–32 V allowed). Control inputs are isolated, no common ground needed.
+- **Its supply must also go through the e-stop contactor** (§10), otherwise Y keeps power and holding torque with
+  the e-stop pressed.
+
+### To do
+
+- [x] Check the pinout and voltage range in the iES-1706's own datasheet (done 2026-10-08, 18–32 V DC).
+- [ ] Build the FDN337N converter (STEP, DIR; ENA optional).
+- [ ] Set the DIP switches: 4000 pulses/rev, S6 rising edge.
+- [ ] Wire power through the e-stop contactor, ALM to a Smoothie input (limit) or the kill loop.
+- [ ] Smoothie: `microseconds_per_step_pulse 3`, `beta_steps_per_mm 100`, `beta_current 0`, ALM input; sync, reset.
+- [ ] Test slowly: direction, steps/mm over 300 mm, homing, ALM triggers a halt (e.g. block the axis by hand at
+      low current/speed).
+- [ ] Speed test, set Y limits in OpenPnP, redo camera/nozzle checks that depend on Y, copy `machine.xml` and
+      `config.txt` here.
+
+---
+
+## 13. Troubleshooting
 
 | Symptom | Likely cause |
 |---|---|
@@ -975,7 +1134,7 @@ edited with OpenPnP closed, because the Contact Probe tab can't save these field
 
 ---
 
-## 13. Change log – what was changed on the machine
+## 14. Change log – what was changed on the machine
 
 | Date | Change | Undo / backup |
 |---|---|---|
@@ -998,13 +1157,13 @@ edited with OpenPnP closed, because the Contact Probe tab can't save these field
 | 2026-10-05 ~20:00 | BOTTOM Advanced Calibration **switched off**: its data was from the old Z −7.8 and no longer matched the new position → nozzle off the crosshair, N40 calibration failed after homing (0.77 mm > 0.5 mm). Off → nozzle calibration works | Re-enable only after a fresh calibration |
 | 2026-10-05 | Speed tests (`scripts/Speed_Test.js`): lost steps above 250 mm/s and at 3000 mm/s². Set X/Y to 200 mm/s, 1200 mm/s² in OpenPnP; Smoothie `x/y_axis_max_speed 15000`, `acceleration 1200` | OpenPnP x/y were 15000 mm/s, 1500 mm/s²; Smoothie 20000 / 2500 |
 | 2026-10-07 14:30 | `machine.xml`: nozzle N feeder and placement height probing EachTime → **AfterHoming**, edited in the file with OpenPnP closed. Copy in this folder updated (also has the nozzle tip changes made in the GUI since 10:41) | `~/.openpnp2/machine.xml.before-probe-afterhoming-20261007-1430` |
-| 2026-10-07 10:41 | `machine.xml`: nozzle N `contact-probe-adjust-z` (Final Adjustment) 0 → **5.894 mm**, edited in the file with OpenPnP closed (GUI Apply bug, see §12). N40 touch location (−17.8, 211.0, Z −18.02), Z calibration trigger NozzleTipChange (set in the GUI). Copy in this folder updated | `~/.openpnp2/machine.xml.before-probe-adjust-20261007-1041` |
+| 2026-10-07 10:41 | `machine.xml`: nozzle N `contact-probe-adjust-z` (Final Adjustment) 0 → **5.894 mm**, edited in the file with OpenPnP closed (GUI Apply bug, see §13). N40 touch location (−17.8, 211.0, Z −18.02), Z calibration trigger NozzleTipChange (set in the GUI). Copy in this folder updated | `~/.openpnp2/machine.xml.before-probe-adjust-20261007-1041` |
 | 2026-10-07 | Z probing: `zprobe` module added to Smoothie `config.txt` (`zprobe.probe_pin 1.29^!`, §11). `N1PROBE` command changed to `G38.2 Z-10 F300` (was `Z-42 F1500`). Bed probe test: −48.533 / −48.527 / −48.554 | Remove the `zprobe` lines; old command in the 2026-10-05 `machine.xml` copy |
 | 2026-10-07 | E-stop indicator LED added: second NC contact block + FDN337N, 100k/33k gate divider (§10). Smoothie signal line untouched | Remove the LED board; nothing else changed |
 
 ---
 
-## 14. Open items
+## 15. Open items
 
 ### Next session (2026-10-06): bottom camera Advanced Calibration
 
@@ -1059,6 +1218,8 @@ Afterwards:
 - [x] **Bottom camera Advanced Calibration redone 2026-10-07: RMS 1.74 px** in the log (the saved
       `rms-error` shows 2.46 px – OpenPnP stores a differently computed value). Enabled and saved 19:41, nozzle
       tip calibration passes.
+- [ ] **Y axis → Leadshine iES-1706 servo**: FDN337N step/dir converter, config, ALM to halt, power via the e-stop
+      contactor. Plan and checklist in §12.
 - [ ] **Replace the top (head) camera**: Logitech C270 → new ULP camera (ordered 2026-10-08). When it arrives:
   1. Before swapping: save the config and back up `~/.openpnp2` (the C270 settings stay in the backup).
   2. Mount it on the head, lens square to the bed (the top camera's tilt matters as much as the bottom one's).
@@ -1097,8 +1258,11 @@ Afterwards:
       Adjustment set to 5.894 in `machine.xml`. Tip Z calibrations now within ±0.06 mm. Details in §11.
 - [ ] Z probing in OpenPnP: touch location + Z reference, Z calibration per tip, feeder/part height probing back
       on and checked in the log, then copy `machine.xml` and `config.txt` here (§11 steps 7–9).
-- [ ] Hardware e-stop: relay (Schrack RP310006, 220 Ω 5 W coil resistor) cutting motor 24 V, fail-safe NC kill
-      input moved off P2.12, Smoothie logic on its own 5 V. Plan and checklist in §10.
+- [ ] Hardware e-stop: 24 V DC contactor 1NO + 1NC (preferred) or relay (Schrack RP310006, 220 Ω 5 W coil
+      resistor) cutting motor 24 V, Smoothie logic on its own 5 V. Plan and checklist in §10.
+- [ ] **Move the kill input to P1.30 (JP32)** as a fail-safe NC loop: 4.7k pull-up to 3.3 V + 100 nF, e-stop NC
+      block #2 (swap the NO block), later the iES-1706 ALM in series. Config `kill_button_pin 1.30^!`,
+      `unkill_enable false`; disconnect P2.12. Run the 5 tests. Details in §10, "Fail-safe kill loop".
 - [x] **Lost steps at 100 % speed** – **solved 2026-10-05**, settings applied at 19:10 (see the end of this item) (fine at 80 %, which also means 64 % acceleration – OpenPnP scales acceleration
       by speed²). X/Y motors are 17HM19-2004S (0.9°, 2.0 A) but run at 0.5 / 0.6 A (`alpha/beta_current`).
       Raise the current, then run `scripts/Speed_Test.js` (copy to `~/.openpnp2/scripts/`). It steps up feed rate
@@ -1141,13 +1305,16 @@ Afterwards:
 
 ---
 
-## 15. References
+## 16. References
 
 - Vacuum sensor PCB document: `vacuum-sensor.md` (GitHub vacuum sensor PCB project)
 - Reference copy of the OpenPnP machine config: `machine.xml` (this folder; live file is `~/.openpnp2/machine.xml`)
 - OpenPnP 2.0 upgrade notes: `/opt/openpnp/OPENPNP_2_0.md` on the PnP PC
 - OpenPnP wiki – Contact Probing Nozzle: <https://github.com/openpnp/openpnp/wiki/Contact-Probing-Nozzle>
 - Smoothieware – zprobe module (config, G30, G38.x): <https://smoothieware.org/zprobe>
+- Leadshine iES-1706: datasheet `Datasheet of the iES-1706.pdf` (this folder), <https://www.leadshine.com/legacys/iES-1706.html>; IES series hardware manual (HWMN-IES-R20121030):
+  <https://PureLogic.ru/docs/elektroprivod/privody_na_servo_shagovykh_dvigatelyakh_seriya_ies_user_manual_ru.pdf>
+- DST-1R4P-N optocoupler module (≈ 20 kHz): <https://funduinoshop.com/en/components/pushbuttons-and-switches/optocoupler/4-channel-optocoupler-module-dst-1r4p-n>
 - OpenPnP wiki – Vacuum Sensing: <https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration_Vacuum-Sensing>
 - Smoothieware temperature control (incl. AD8495 section): <https://smoothieware.org/temperaturecontrol>
 - Microchip MCP6001/1R/1U/2/4 datasheet (DS20001733L):
