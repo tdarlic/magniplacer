@@ -43,7 +43,7 @@ exit) to pick up GUI changes: `scp tdarlic@192.168.0.185:.openpnp2/machine.xml .
 | Serial port | `/dev/ttyACM0`, 115200 baud (Smoothieboard USB `1d50:6015`) |
 | Nozzle | `N` (id `N1`), `ContactProbeNozzle`, probe actuator `N1PROBE` (G38.2, reads P1.29 via M119) |
 | Nozzle tips | 6 tips in an automatic tip changer: N045 (`NT1`), N40, N14, N24, N400, N750 (see below) |
-| Top camera | `TOP CAMERA`, Logitech C270 (`046d:0825`), USB port `usb-0000:00:14.0-9`, 1280×960 |
+| Top camera | `TOP CAMERA`, Logitech C270 (`046d:0825`), USB port `usb-0000:00:14.0-9`, 1280×960. **To be replaced** by a new ULP camera (ordered 2026-10-08, see §13) |
 | Bottom camera | `BOTTOM`, "HD USB Camera" (`05a3:9310`), USB port `usb-0000:00:14.0-2`, 960×720 |
 
 ### Actuators (v2 config)
@@ -752,6 +752,30 @@ PSU +24V ── COM
 - PCB relay pins: use a socket or a piece of perfboard, heatshrink every joint, motor-power wire sized for the
   VBB current.
 
+**Alternative (preferred, 2026-10-08): 24 V DC contactor with 1NO + 1NC** instead of the Schrack relay. No series
+resistor (24 V coil), DIN-rail mounting, and its contacts match the e-stop blocks already fitted – no new blocks
+needed:
+
+```
++24V ── e-stop NC block ── coil A1/A2 (24 V DC) ── GND    (+ diode/varistor across the coil)
+
+PSU +24V ── NO ──► Smoothie VBB        (closed while the e-stop is released)
+PSU +24V ── NC ──► LED + R ──► GND     (closed when the e-stop is pressed = LED on)
+
+e-stop NO block ──► Smoothie kill input (as now)
+```
+
+- E-stop NC block: moves from the FET LED circuit to the contactor coil. The FET LED circuit can then be removed.
+- E-stop NO block: stays on the Smoothie kill input, so the firmware still halts. Cutting only the power would
+  leave the Smoothie running G-code with dead motors; on release the motors would come back at the wrong
+  position. After an e-stop: `M999` and home.
+- 1NO + 1NC rather than 2NO: one pole is plenty for a few amps at 24 V DC, and the NC contact drives the LED.
+  (2NO would allow two poles in series for better DC breaking, but leaves no contact for the LED.)
+- Check the contacts' **DC-1 rating at 24 V** covers the VBB current; most small contactors are rated for AC.
+  Coil suppressor (diode or varistor) unless built in.
+- Examples: Siemens 3RT2015-1BB41, Schneider LC1K0610BD (24 V DC coil) – check the auxiliary contact type.
+- Same points as for the relay: separate 5 V for the Smoothie logic, fail-safe kill input later (list below).
+
 **Do together with the relay:**
 
 - [ ] **Smoothie logic on its own 5 V.** If the 5 V comes from VBB through the on-board regulator, cutting VBB
@@ -984,6 +1008,12 @@ edited with OpenPnP closed, because the Contact Probe tab can't save these field
 
 ### Next session (2026-10-06): bottom camera Advanced Calibration
 
+**Update 2026-10-07 18:41: new BOTTOM Advanced Calibration done – RMS 1.74 px** (11 of 535 points removed as
+outliers; 3.75 px before outlier removal). Two heights, 32 radial lines, about 14–15 steps each; the walk lost the
+tip once near the edge (1 of 15 allowed errors). Detection on the outer diameter of the tip end face (46 px ≈ 2.2 mm),
+camera settings unchanged (exposure 120, contrast 128, fill fraction 0.9). Still to do: check **Enabled**, save the
+config, home, N40 nozzle tip calibration, copy `machine.xml` here.
+
 Status on 2026-10-05: BOTTOM Advanced Calibration is **off**. The old data (Z −7.8, RMS 3.99 px) didn't match the
 camera's new position after the Issues & Solutions "camera position" step, and a new run with N40 misdetected the
 nozzle at the later test points (image edges and the second height). Nozzle tip calibration works with it off.
@@ -1026,8 +1056,31 @@ Afterwards:
 - [x] ~~Actuators without a driver~~: PUMP, AVAC, LIGHT_TOP and LIGHT_BOTTOM still have no `driver-id`, but the
       log (2026-10-05) shows their G-code is sent. Nothing to fix. Optionally assign the GcodeDriver for tidiness.
 - [x] Bottom camera added, Advanced Camera Calibration enabled, nozzle tip calibration running (N40).
-- [ ] **Bottom camera Advanced Calibration is off** (2026-10-05) – redo it, see the checklist at the top of this
-      section.
+- [x] **Bottom camera Advanced Calibration redone 2026-10-07: RMS 1.74 px** in the log (the saved
+      `rms-error` shows 2.46 px – OpenPnP stores a differently computed value). Enabled and saved 19:41, nozzle
+      tip calibration passes.
+- [ ] **Replace the top (head) camera**: Logitech C270 → new ULP camera (ordered 2026-10-08). When it arrives:
+  1. Before swapping: save the config and back up `~/.openpnp2` (the C270 settings stay in the backup).
+  2. Mount it on the head, lens square to the bed (the top camera's tilt matters as much as the bottom one's).
+  3. Machine Setup → Cameras → TOP CAMERA: select the new device (the `unique-id` changes from
+     `UVC Camera (046d:0825)`), pick a resolution/format (MJPEG for high resolutions), turn **off** auto
+     exposure, auto white balance and autofocus (if it has one), set focus at the board height.
+  4. Redo in this order: camera head offset and units per pixel (Issues & Solutions), **TOP CAMERA Advanced
+     Camera Calibration**, then nozzle head offset to the camera (§1: currently X −106.55, Y −35.47), the
+     nozzle tip touch locations if they were set with the camera, fiducial / feeder vision checks.
+  5. Check the top light: brightness and exposure as for the bottom camera (§5).
+  6. Update the camera table in §1, copy `machine.xml` here.
+- [ ] **Square up the bottom camera mount** (the mount can be adjusted in all axes). The 2026-10-07 calibration
+      measured a tilt of **7.0° around Y** and **3.1° around X** (rotation around Z −0.2°, fine); 2026-10-05 was
+      3.3° / 2.5°. OpenPnP corrects it, but a large tilt costs resolution and makes the correction strong.
+  1. Advanced Calibration: **untick Enabled** (the corrected image hides the tilt), Apply.
+  2. Load a tip, centre it over the camera at the calibration height. Move Z up/down by 5 mm: the tip should
+     stay at the same spot in the image. At ≈ 0.047 mm/px, a 7° tilt moves it ≈ 0.6 mm ≈ 13 px per 5 mm of Z.
+  3. Tilt the mount against the direction the tip moves, repeat until the shift is ≲ 1–2 px (≈ 1°). Keep the
+     camera's Z rotation and focus as they are, tighten, re-check.
+  4. Re-run Advanced Calibration (outer diameter of the tip end face, fill fraction 0.6–0.7). Expect rotation
+     errors ≲ 1° in `machine.xml`. **Don't** run the Issues & Solutions "camera position" step afterwards.
+  5. Enable it, save, home, nozzle tip calibration for each tip, copy `machine.xml` here.
 - [x] Top camera Advanced Camera Calibration done and enabled (2026-10-05 19:34, RMS 1.89 px).
 - [ ] Set the bottom camera exposure and lighting (§5), then recalibrate.
 - [ ] Part detection: set up N045 properly (its method is Difference with no limits). Measure N40 empty and with
