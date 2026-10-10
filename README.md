@@ -1188,6 +1188,9 @@ beta_current                  0        # on-board Y driver idle, no motor on it
 | 2026-10-07 | Z probing: `zprobe` module added to Smoothie `config.txt` (`zprobe.probe_pin 1.29^!`, §11). `N1PROBE` command changed to `G38.2 Z-10 F300` (was `Z-42 F1500`). Bed probe test: −48.533 / −48.527 / −48.554 | Remove the `zprobe` lines; old command in the 2026-10-05 `machine.xml` copy |
 | 2026-10-07 | E-stop indicator LED added: second NC contact block + FDN337N, 100k/33k gate divider (§10). Smoothie signal line untouched | Remove the LED board; nothing else changed |
 | 2026-10-10 | Z axis: Safe Zone Low −4.8 → **−11.5 mm** (Issues & Solutions, nozzle ≈ 1 mm above the changer holder), Soft Limit High **+1.5 mm enabled** (was 0, disabled). Dynamic Safe Z stays on. Max part height ≈ 11.4 mm, bottom vision up to 8.25 mm (§11) | Old values in the `machine.xml` copy in this folder |
+| 2026-10-10 | Nozzle N head offset (−106.546, −35.466) → **(−106.766, −35.666)** with the Nozzle Offset Wizard. All 0603 placements had been off by X −0.2 / Y −0.2; after the change 2 of 9 are exact, 7 are +Y 0.1–0.15 (open item §15). Wizard check: nozzle vs camera within 0.02 mm. Bottom camera position not touched: with Advanced Calibration on, it is stored as `calibrated-offsets` (−4.585, +1.993) and "Calibrate Camera Position and Rotation" on the nozzle tip is hidden | Old values in the `machine.xml` copy in this folder |
+| 2026-10-10 21:25 | Y backlash calibration: offset 0.127 → **0.151 mm**, method stays OneSidedPositioning (speed factor 0.25). Measured 0.144 / 0.153 / 0.119 / 0.119 / 0.110 mm at speed factors 0.25 / 0.33 / 0.5 / 0.75 / 1.0; only 2 of 5 consistent; sneak-up 1.81 mm rejected (> 0.8). Two earlier runs failed: "Subject not found" and "measured 1.141 mm, should be 1.000 mm". Home fiducial 0.162 mm off after the run | Old value in the `machine.xml` copy in this folder |
+| 2026-10-10 21:42 | Left Y belt was loose: tightened. Y backlash calibration again: offset 0.151 → **0.132 mm**, OneSidedPositioning, speed factor 0.25. Measured 0.144 / 0.136 / 0.085 / 0.093 / 0.102 mm (speed factors 0.25 … 1.0), sneak-up again 1.81 mm. No calibration errors this time, and the home fiducial was only **0.007 mm** off after the run (was 0.162 / 0.146) | Old value in the `machine.xml` copy in this folder |
 
 ---
 
@@ -1246,6 +1249,17 @@ Afterwards:
 - [x] **Bottom camera Advanced Calibration redone 2026-10-07: RMS 1.74 px** in the log (the saved
       `rms-error` shows 2.46 px – OpenPnP stores a differently computed value). Enabled and saved 19:41, nozzle
       tip calibration passes.
+- [ ] **Placement accuracy: residual +Y 0.1–0.15 mm** (2026-10-10, 7 of 9 0603s; X fine). Pick offsets before vision were X −0.02…−0.31 / Y +0.09…+0.27, so vision is correcting. Next, in this order:
+  1. ~~Y backlash calibration~~ done 2026-10-10. The left Y belt was loose; after tightening, offset 0.132 mm and Y comes
+     back to the home fiducial within 0.007 mm (was 0.16). Re-run the 0603 job to check. Before the belt fix, the run
+     gave 0.151 mm (was 0.127), and the measurements pointed to a soft or
+     inconsistent Y axis rather than plain backlash (see the change log). Check the Y belt tension, pulley grub screws
+     and Y motor current (0.6 A), and do a repeatability test on the home fiducial. The iES-1706 servo (§12) fixes
+     lost steps, not belt stretch.
+  2. N045 nozzle tip calibration (runout). A wrong runout model gives an error that depends on the placement angle.
+  3. ~~Part sliding on release~~: ruled out. The test board already has double-sided tape and is firmly fixed, and
+     the top camera sees the parts sitting where they were placed.
+  4. Then camera exposure and the top camera Advanced Calibration.
 - [ ] **Y axis → Leadshine iES-1706 servo**: FDN337N step/dir converter, config, ALM to halt, power via the e-stop
       contactor. Plan and checklist in §12.
 - [ ] **Replace the top (head) camera**: Logitech C270 → new ULP camera (ordered 2026-10-08). When it arrives:
