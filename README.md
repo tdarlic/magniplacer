@@ -72,7 +72,7 @@ The head's pump control is **PartOn** with a 0 ms pump-on wait, so the pump is s
 |---|---|---|---|
 | x | X | 1 … 570 mm | **200 mm/s, 1200 mm/s²** (tested, 2026-10-05); backlash: one-sided, ≈ 0.127 mm |
 | y | Y | 3 … 373 mm | **200 mm/s, 1200 mm/s²** (tested, 2026-10-05); backlash: one-sided, ≈ 0.127 mm |
-| Z | Z | – | safe zone low −4.8 mm |
+| Z | Z | −49 … +1.5 mm | safe zone −11.5 … 0 mm, Dynamic Safe Z on (§11, changed 2026-10-10) |
 | C | A | −180 … 180° | rotation, wrap-around, limited |
 | zTop / rotationTop | – | – | virtual axes for the top camera |
 
@@ -1006,6 +1006,33 @@ edited with OpenPnP closed, because the Contact Probe tab can't save these field
   for that feeder in `<probed-feeder-height-offsets>` (OpenPnP closed) – it then always picks at its nominal
   height. Delete the entry to have it probed again. Only if a feeder actually has trouble with probing.
 
+### Safe Z and maximum part height
+
+Set 2026-10-10. The nozzle tip changer is the highest thing on the bed, so it sets Safe Z.
+
+| Setting (Z axis / nozzle N) | Value | Why |
+|---|---|---|
+| Safe Zone Low | **−11.5 mm** | Nozzle tip ≈ 1 mm above the changer holder (the holder is higher than the tips standing in it). Set with Issues & Solutions → "Set Safe Z of N" |
+| Safe Zone High | 0 mm | Z home (top) |
+| Soft Limit High | **+1.5 mm**, enabled | Room above the home switch, so bottom vision can reach taller parts. Smoothie has no soft endstops and no `limit_enable`, so this OpenPnP limit is the only thing stopping Z at the top |
+| Soft Limit Low | −49 mm | – |
+| Dynamic Safe Z (nozzle N) | **on** | Carrying a part, the nozzle lifts by the part height, so the part's bottom travels at the same −11.5 plane as an empty tip and clears the changer |
+
+**Maximum part height**
+
+| Limit | Calculation | Max part height |
+|---|---|---|
+| Pick and travel | −11.5 + h ≤ 0 (Safe Zone High); minus the tip's Z offset (≈ 0.1 mm) | **≈ 11.4 mm** |
+| Bottom vision | Part bottom at camera focus: −6.75 + h ≤ +1.5 (Soft Limit High) | **8.25 mm** |
+
+- 8 mm parts (electrolytic capacitors) can be picked, aligned and placed. At bottom vision they are 1.25 mm
+  above the home position.
+- Parts taller than 8.25 mm can be picked but not bottom-vision aligned: turn bottom vision off for that part,
+  otherwise alignment stops with a soft-limit error.
+- **Always enter the real part height.** With height 0 or unknown, OpenPnP uses the nozzle tip's Max. Part
+  Height (5 mm on most tips) for safe Z.
+- If the changer is moved or raised, set Safe Z again.
+
 ---
 
 ## 12. Y axis – Leadshine iES-1706 servo (planned)
@@ -1160,6 +1187,7 @@ beta_current                  0        # on-board Y driver idle, no motor on it
 | 2026-10-07 10:41 | `machine.xml`: nozzle N `contact-probe-adjust-z` (Final Adjustment) 0 → **5.894 mm**, edited in the file with OpenPnP closed (GUI Apply bug, see §13). N40 touch location (−17.8, 211.0, Z −18.02), Z calibration trigger NozzleTipChange (set in the GUI). Copy in this folder updated | `~/.openpnp2/machine.xml.before-probe-adjust-20261007-1041` |
 | 2026-10-07 | Z probing: `zprobe` module added to Smoothie `config.txt` (`zprobe.probe_pin 1.29^!`, §11). `N1PROBE` command changed to `G38.2 Z-10 F300` (was `Z-42 F1500`). Bed probe test: −48.533 / −48.527 / −48.554 | Remove the `zprobe` lines; old command in the 2026-10-05 `machine.xml` copy |
 | 2026-10-07 | E-stop indicator LED added: second NC contact block + FDN337N, 100k/33k gate divider (§10). Smoothie signal line untouched | Remove the LED board; nothing else changed |
+| 2026-10-10 | Z axis: Safe Zone Low −4.8 → **−11.5 mm** (Issues & Solutions, nozzle ≈ 1 mm above the changer holder), Soft Limit High **+1.5 mm enabled** (was 0, disabled). Dynamic Safe Z stays on. Max part height ≈ 11.4 mm, bottom vision up to 8.25 mm (§11) | Old values in the `machine.xml` copy in this folder |
 
 ---
 

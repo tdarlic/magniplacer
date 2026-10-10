@@ -1,0 +1,26 @@
+### Module positions - created on Sun 15 Dec 2019 01:48:43 PM CET ###
+### Printed by Pcbnew version kicad 5.1.5-52549c5~84~ubuntu16.04.1
+## Unit = mm, Angle = deg.
+## Side : top
+# Ref     Val                   Package                                               PosX       PosY       Rot  Side
+FID1      FIDUCIAL              FIDUCIAL                                            1.8410     1.7730    0.0000  top
+FID2      FIDUCIAL              FIDUCIAL                                           62.9610    47.4930    0.0000  top
+R4        1k                    R_0603_1608Metric_Pad1.05x0.95mm_HandSolder_1k     58.4110     1.2030    0.0000  top
+R20       1k                    R_0603_1608Metric_1k                               39.5110    25.3530    0.0000  top
+R26       1k                    R_0603_1608Metric_1k                                5.0110     2.8030    0.0000  top
+R28       1k                    R_0603_1608Metric_1k                               31.4610     3.6000    0.0000  top
+R29       1k                    R_0603_1608Metric_1k                               35.2250     3.6000    0.0000  top
+R38       1k                    R_0603_1608Metric_1k                               39.5110    29.1530    0.0000  top
+R40       1k                    R_0603_1608Metric_1k                               63.9250    16.4030  180.0000  top
+R41       1k                    R_0603_1608Metric_1k                               63.9250    14.2030  180.0000  top
+R42       1k                    R_0603_1608Metric_1k                               63.9250    21.0000  180.0000  top
+R43       1k                    R_0603_1608Metric_1k                               63.9250    18.8000  180.0000  top
+R46       1k                    R_0603_1608Metric_1k                               54.4250    36.0000  180.0000  top
+R47       1k                    R_0603_1608Metric_1k                               50.7250    32.6000    0.0000  top
+R49       1k                    R_0603_1608Metric_1k                               36.0250    15.2000  180.0000  top
+R50       1k                    R_0603_1608Metric_1k                               36.0250    16.6750    0.0000  top
+R51       1k                    R_0603_1608Metric_1k                               36.0250    18.1250    0.0000  top
+U4        PIC32MX250F128D       TQFP-44_10x10mm_Pitch0.8mm                         44.3110    11.4030   90.0000  top
+U5        NANO_SIM_WURTH        NANO_SIM_WURTH_MANUAL                              15.5110    36.5030  180.0000  top
+U8        SIM808                SIM808                                             20.2310    18.9030  180.0000  top
+## End
