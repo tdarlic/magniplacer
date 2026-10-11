@@ -1241,6 +1241,11 @@ Afterwards:
 - [ ] Fallback: the 19:15 `machine.xml` copy in this folder has the bottom camera as it was before 2026-10-05 19:23.
       With OpenPnP closed, the BOTTOM camera section can be restored from it.
 
+### Hardware
+
+CP40 nozzle o-rings are much smaller than the nozzle: od=4.5mm, id=3.5mm
+See image: [o-ring](images/o-ring.jpg)
+
 ### Other open items
 
 - [x] ~~Actuators without a driver~~: PUMP, AVAC, LIGHT_TOP and LIGHT_BOTTOM still have no `driver-id`, but the
