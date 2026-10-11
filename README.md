@@ -1251,6 +1251,11 @@ Afterwards:
 
 CP40 nozzle o-rings are much smaller than the nozzle: od=4.5mm, id=3.5mm
 See image: [o-ring](images/o-ring.jpg)
+There was discussion on OpenPnP group, and below are keypoints.
+This [image](images/o-ring-image-on-ruler.jpg) was sent as a example of real spare o-ring and the [measurement](images/Seal_size_3.8-5.2mm.png) was sent later
+claiming to be = ID= 3.8,  & OD = 5.2mm
+The other guy came with [image](images/spare_bag.jpg) of the spare o-rings claiming to be 5x1mm.
+Some seller confirmed it with this [image](images/nozzle_with_ring_off.jpg)
 
 ### Other open items
 
