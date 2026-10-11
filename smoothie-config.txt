@@ -7,8 +7,8 @@ default_seek_rate                            16000            # Default rate ( m
 grbl_mode									 false
 
 # Arm solution configuration : Cartesian robot. Translates mm positions into stepper positions
-alpha_steps_per_mm                           320.25     # Steps per mm for alpha stepper
-beta_steps_per_mm                            320          # Steps per mm for beta stepper
+alpha_steps_per_mm                           320.07      # Steps per mm for alpha stepper
+beta_steps_per_mm                            320.22          # Steps per mm for beta stepper
 gamma_steps_per_mm                           812.7           # Steps per mm for gamma stepper
 
 # Planner module configuration : Look-ahead and acceleration configuration

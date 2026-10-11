@@ -70,8 +70,8 @@ The head's pump control is **PartOn** with a 0 ms pump-on wait, so the pump is s
 
 | Axis | Letter | Soft limits | Notes |
 |---|---|---|---|
-| x | X | 1 … 570 mm | **200 mm/s, 1200 mm/s²** (tested, 2026-10-05); backlash: one-sided, ≈ 0.127 mm |
-| y | Y | 3 … 373 mm | **200 mm/s, 1200 mm/s²** (tested, 2026-10-05); backlash: one-sided, ≈ 0.127 mm |
+| x | X | 1 … 570 mm | **200 mm/s, 1200 mm/s²** (tested, 2026-10-05); backlash: one-sided, 0.150 mm (2026-10-11) |
+| y | Y | 3 … 373 mm | **200 mm/s, 1200 mm/s²** (tested, 2026-10-05); backlash: one-sided, 0.150 mm (2026-10-11) |
 | Z | Z | −49 … +1.5 mm | safe zone −11.5 … 0 mm, Dynamic Safe Z on (§11, changed 2026-10-10) |
 | C | A | −180 … 180° | rotation, wrap-around, limited |
 | zTop / rotationTop | – | – | virtual axes for the top camera |
@@ -1156,7 +1156,7 @@ beta_current                  0        # on-board Y driver idle, no motor on it
 | Vacuum builds too slowly / weak pick | Restriction too narrow; leaks in tubing |
 | Op-amp or Smoothie dead after rework | Check the VBB/3.3V/GND connector wiring – VBB on the 3.3 V wire |
 | Smoothie gives no serial port (`ttyACM0`) and no SD drive; PC log shows `Product: Smoothie`, `Manufacturer: SmoothieWare`, `bcdDevice 0.40` instead of `Smoothieboard` / `Uberclock` | Board waiting in its bootloader. **Most likely cause: e-stop pressed at power-up.** The e-stop is on `kill_button_pin 2.12`, the same pin as the board's play button, which (probably) makes the bootloader wait. The e-stop LED (§10) is lit when it's pressed. Release the e-stop and reset / power-cycle. If it still stays in the bootloader: copy `FIRMWARE.CUR` to `firmware.bin` on the SD card to reflash (2026-10-05) |
-| Contact Probe tab (Nozzles → N): Final Adjustment, Feeder/Placement Height Probing, Discard Probing or Calibration Z Offset don't stick after Apply + Save; log shows `UnsupportedOperationException: Unwritable` at `JBindings$WrappedBinding.save` | **OpenPnP bug** in the installed build: `sniffleDwellTime` has a `long` getter but an `int` setter, so its binding is unwritable. Apply saves the fields in order and stops at that one, so every field after it is lost. Workaround: close OpenPnP (it saves on exit), back up `machine.xml`, edit the `ContactProbeNozzle` values there (e.g. `<contact-probe-adjust-z value="…">`), restart (2026-10-07) |
+| Contact Probe tab (Nozzles → N): Final Adjustment, Feeder/Placement Height Probing, Discard Probing or Calibration Z Offset don't stick after Apply + Save; log shows `UnsupportedOperationException: Unwritable` at `JBindings$WrappedBinding.save` | **OpenPnP bug** in the installed build: `sniffleDwellTime` has a `long` getter but an `int` setter, so its binding is unwritable. Apply saves the fields in order and stops at that one, so every field after it is lost. Workaround: close OpenPnP (it saves on exit), back up `machine.xml`, edit the `ContactProbeNozzle` values there (e.g. `<contact-probe-adjust-z value="…">`), restart (2026-10-07). **"Calibrate now" on the same tab runs Apply first and fails the same way** (2026-10-11): the GUI throws and the calibration never runs. Trigger the Z calibration by homing or a tip change instead (trigger MachineHome / NozzleTipChange) |
 | PC says the Smoothie SD card "was not properly unmounted" | The card's FAT dirty flag. Close OpenPnP, `udisksctl unmount -b /dev/sdb1`, `sudo fsck.vfat -a /dev/sdb1`, reset the board. After editing `config.txt` run `sync` before resetting |
 
 ---
@@ -1191,6 +1191,12 @@ beta_current                  0        # on-board Y driver idle, no motor on it
 | 2026-10-10 | Nozzle N head offset (−106.546, −35.466) → **(−106.766, −35.666)** with the Nozzle Offset Wizard. All 0603 placements had been off by X −0.2 / Y −0.2; after the change 2 of 9 are exact, 7 are +Y 0.1–0.15 (open item §15). Wizard check: nozzle vs camera within 0.02 mm. Bottom camera position not touched: with Advanced Calibration on, it is stored as `calibrated-offsets` (−4.585, +1.993) and "Calibrate Camera Position and Rotation" on the nozzle tip is hidden | Old values in the `machine.xml` copy in this folder |
 | 2026-10-10 21:25 | Y backlash calibration: offset 0.127 → **0.151 mm**, method stays OneSidedPositioning (speed factor 0.25). Measured 0.144 / 0.153 / 0.119 / 0.119 / 0.110 mm at speed factors 0.25 / 0.33 / 0.5 / 0.75 / 1.0; only 2 of 5 consistent; sneak-up 1.81 mm rejected (> 0.8). Two earlier runs failed: "Subject not found" and "measured 1.141 mm, should be 1.000 mm". Home fiducial 0.162 mm off after the run | Old value in the `machine.xml` copy in this folder |
 | 2026-10-10 21:42 | Left Y belt was loose: tightened. Y backlash calibration again: offset 0.151 → **0.132 mm**, OneSidedPositioning, speed factor 0.25. Measured 0.144 / 0.136 / 0.085 / 0.093 / 0.102 mm (speed factors 0.25 … 1.0), sneak-up again 1.81 mm. No calibration errors this time, and the home fiducial was only **0.007 mm** off after the run (was 0.162 / 0.146) | Old value in the `machine.xml` copy in this folder |
+| 2026-10-11 | Left Y belt shortened and tensioned to match the right side. Gantry squared by hand with mm paper and the top camera: 0.5 → **< 0.1 mm per 200 mm**. Non-squareness compensation not used | – |
+| 2026-10-11 | Coordinate mix-up after the belt work: an N24 Z probe missed the changer (`ALARM: Probe fail` → Smoothie halted), homing then failed, and the homing fiducial value was changed. Root cause: after visual homing (`G92`), Smoothie keeps the offset through later `G28` homings until the board resets, so the switch-homed position drifted between sessions (−3.3/−4.9, −4.3/−6.1). The camera then looked several mm off, and sometimes locked onto the PCB fiducial ~9.5 mm away. Backup before the re-setup: `~/openpnp2-backup-before-rehome-20261011-1139.tgz` (3.3 GB) | Backup |
+| 2026-10-11 | Steps/mm calibrated with a steel ruler over 200 mm, both directions: X `alpha_steps_per_mm` 320.25 → **320.07** (moved 200.11 per 200), Y `beta_steps_per_mm` 320 → **320.22** (moved 199.86 per 200). Both now within 0.02 mm per 200 mm. Written with `config-set sd`, checked with `M92` after a reset. `smoothie-config.txt` updated | Old values: 320.25 / 320 |
+| 2026-10-11 | Homing fiducial set to **X 19.344, Y 32.712**, where the plain switch homing (`G28`, position 0/0 after a fresh reset) sees it, so visual homing only corrects ≈ 0.01–0.07 mm and no offset builds up. **All positions must be taught again** in these coordinates (re-setup in progress, see §15) | Backup above |
+| 2026-10-11 | Nozzle tip runout calibration (bottom camera, Z −7.95): runout N14 0.039, N40 0.043, N045 0.049, N400 0.063, N750 0.056 mm; fit RMS ≤ 0.011 mm; camera position offset ≤ 0.06 mm (N14 −0.061 in X, the others +0.01 … +0.04). N24 not calibrated | Old values in the backup above |
+| 2026-10-11 18:14 / 19:05 | X and Y backlash calibration after the steps/mm and squaring work: both stay OneSidedPositioning (speed factor 0.25), offset X 0.127 → **0.150 mm**, Y 0.132 → **0.150 mm**. Measured X 0.143 / 0.135 / 0.143 / 0.110 / 0.093 mm and Y 0.169 / 0.169 / 0.143 / 0.135 / 0.126 mm at speed factors 0.25 … 1.0; sneak-up 1.81 mm rejected (> 0.8) on both | Old values in the backup above |
 
 ---
 
@@ -1265,6 +1271,38 @@ See image: [o-ring](images/o-ring.jpg)
   3. ~~Part sliding on release~~: ruled out. The test board already has double-sided tape and is firmly fixed, and
      the top camera sees the parts sitting where they were placed.
   4. Then camera exposure and the top camera Advanced Calibration.
+- [x] **Gantry squared** (2026-10-11). Measured with mm paper: with Y travel aligned to the paper, X drifted
+      **0.5 mm in Y per 200 mm of X** (≈ 0.14°). Squared by hand to **< 0.1 mm per 200 mm** (< 0.03°, ≈ 0.025 mm across a
+      50 mm board), with the motors powered: loosen the left Y drive pulley grub screws, roll the belt over the idler,
+      tighten (OpenPnP wiki "Machine Squaring Guide"). No software compensation: the GcodeDriver
+      `non-squareness-factor` is deprecated in 2.x and only migrated from old configs. If it is ever needed, use a
+      `ReferenceLinearTransformAxis` on X (input X × 1 + input Y × factor, marked as compensation) assigned to all head
+      mountables. The left Y belt was shortened before squaring, so it can now be tensioned like the right one.
+      Next: Y backlash, nozzle offset, top camera Advanced Calibration, 0603 test job.
+- [ ] **Re-setup after re-homing (2026-10-11)**, in this order. Done: homing fiducial (19.344, 32.712), X/Y steps/mm, park, primary/secondary
+  fiducials (Z −39.9 / −22.3, TOP CAMERA Default Working Plane −39.9), TOP CAMERA Advanced Calibration (RMS 1.55 px),
+  changer + touch locations shifted Y −3.2 (taught on the N24 slot; backup `machine.xml.before-changer-shift-20261011-1333`),
+  N045 ↔ N40 change OK, N40 Z calibration after homing +0.164 mm, all tips change OK (N400 Z −0.06 … +0.01 mm).
+  Nozzle head offset (−106.766, −35.666) → (−106.911, −35.449). BOTTOM camera: position (−43.758, 92.877), camera Z
+  **−11.25** (was −6.75), Advanced Calibration RMS 1.45 px, tilt 5.1° / 2.3° (was 7.0° / 3.1°), correction (−2.60, +1.21),
+  roaming radius 40 mm. **Invalid:** the camera was not moved or refocused; the position solution and the calibration
+  locked onto the nozzle tip's "hat" (shoulder) instead of the tip end, ≈ 4.5 mm higher. Redo with the tip end in focus
+  (expect Z ≈ −6.75 and tilt ≈ 7.0° / 3.1° as on 10-07). A second run (15:27) measured at the tip end but with the camera
+  Z still −11.25 and gave nonsense (tilt 31.7°, FOV 10 × 7 mm, correction −100 mm): **set the camera Location Z first**.
+  **Redone 15:37–15:51 with N14** (tip end, vision diameter 2.3 → 1.45 mm): camera (−43.443, 92.755), **Z −7.95**,
+  Advanced Calibration RMS 2.76 px stored (1.95 in the log), tilt 6.6° / 3.1°, correction (−3.93, +1.83). N14 Z
+  calibration had not run yet; check its offset at the next homing, as it directly shifts the camera Z.
+  Runout calibrated for N14, N40, N045, N400, N750 (runout 0.04–0.06 mm, N24 still to do). X/Y backlash calibrated:
+  one-sided, 0.150 mm on both axes. Next: Test Alignment (0603 on N045), feeders ("Upper Strips – 1": no tape holes
+  found), SIM808 tray, discard location, board location, 0603 test job.
+  1. Park location → X 562, Y 362 (570/373 plus the camera offset exceeds the soft limits).
+  2. Primary / secondary calibration fiducials (Issues & Solutions), then the TOP CAMERA Advanced Calibration.
+  3. Nozzle offset (Offset Wizard); BOTTOM camera position + Advanced Calibration; nozzle tip calibration.
+  4. Nozzle tip changer and Z touch locations: teach one slot, shift all others in `machine.xml` by the same delta
+     (OpenPnP closed); test each tip change at 10–20 % speed.
+  5. Discard location, feeders (strip feeder holes, SIM808 tray), board location in the job.
+  6. X/Y backlash calibration, quick squareness check, 0603 test job.
+  - Keep the homing fiducial ≥ 25 mm away from where any PCB sits.
 - [ ] **Y axis → Leadshine iES-1706 servo**: FDN337N step/dir converter, config, ALM to halt, power via the e-stop
       contactor. Plan and checklist in §12.
 - [ ] **Replace the top (head) camera**: Logitech C270 → new ULP camera (ordered 2026-10-08). When it arrives:
