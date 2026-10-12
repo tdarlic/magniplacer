@@ -27,7 +27,7 @@ magnetHeight=4;
 /* [advanced] */
 
 //controls the force to keep the tape in place. lower value higher force and though friction
-tapeClearance=-0.3;     // [-0.5:0.05:0.5]
+tapeClearance=-0.5;     // [-0.5:0.05:0.5]
 bodyHeight=6;
 tapeSupportHoleSide=2.8;
 tapeSupportNonHoleSide=0.9;
